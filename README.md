@@ -1,5 +1,17 @@
 # <p align="center"> <img src="assets/logo_squared.png" width="400"> <br> Team Low Stress Casuals - H&S 2026 </p>
 
+# Team composition #
+
+## Hardware ##
+
+Prelipcean Radu-Adelin - https://github.com/adelinprelipcean</br>
+Rusu Alexandru - https://github.com/alexandru-rusuu
+
+## Software ##
+
+Boca Gheorghe - https://github.com/georgeboca1</br>
+Oprițescu Cosmin - https://github.com/OpritescuCosminMihai
+
 ## Sistem de Monitorizare IoT cu ESP32-C3 Super Mini
 
 Acest proiect reprezintă soluția pentru Task 1 din cadrul preselecțiilor Hard&Soft 2026. Sistemul monitorizează parametri de mediu și de sistem în timp real, oferind feedback vizual pe OLED, Web și Mobile.
