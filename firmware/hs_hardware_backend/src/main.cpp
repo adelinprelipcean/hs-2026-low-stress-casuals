@@ -44,6 +44,7 @@ float g_temperature = 0;
 float g_lightPercent = 0;
 float g_voltage = 0;
 float g_current = 0;
+float g_avgCurrent = 0; // Pentru a stabiliza "Time Left"
 float g_totalMah = 0;
 float g_cpuLoad = 0;
 char g_timestamp[32] = "--:--:--";
@@ -121,7 +122,15 @@ void readSensors() {
   delay(5);
   g_voltage = ina219.getBusVoltage_V();
   g_current = ina219.getCurrent_mA();
-  g_totalMah += g_current * (1.0f / 3600.0f);
+
+  // Filtru EMA (Exponential Moving Average) foarte lent (Alpha = 0.05) ca sa nu
+  // sara "Time left" orbeste.
+  if (g_avgCurrent == 0)
+    g_avgCurrent = g_current;
+  else
+    g_avgCurrent = (g_avgCurrent * 0.95f) + (g_current * 0.05f);
+
+  g_totalMah += g_avgCurrent * (1.0f / 3600.0f);
 
   // --- RTC ---
   delay(5);
@@ -182,8 +191,10 @@ void updateDisplay() {
     display.print(" %");
 
   } else if (g_displayPage == 1) {
-    drawHeader("POWER SYSTEMS");
+    drawHeader("18650 MH1 BATTERY");
     display.setTextSize(1);
+
+    // Tensiune si Curent
     display.setCursor(4, 20);
     display.print("V:");
     display.setCursor(20, 20);
@@ -195,15 +206,43 @@ void updateDisplay() {
     display.print(g_current, 1);
     display.print("mA");
 
-    display.drawLine(5, 34, 123, 34, SSD1306_WHITE);
+    display.drawLine(5, 31, 123, 31, SSD1306_WHITE);
 
-    display.setCursor(22, 40);
-    display.print("Used Capacity");
-    display.setTextSize(2);
-    display.setCursor(
-        max(0, 64 - (int)(String(g_totalMah, 1).length() * 12) / 2), 50);
-    display.print(g_totalMah, 1);
-    display.setTextSize(1);
+    // Calcul % Baterie INR18650MH1 (LG 3200mAh)
+    // Curba standard: 4.2V (100%) - 3.0V (0% pentru o utilizare sigura pe
+    // ESP32)
+    float batPercent = (g_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+    batPercent = constrain(batPercent, 0.0f, 100.0f);
+
+    // Afisare procent
+    display.setCursor(5, 38);
+    display.print("Bat:");
+    display.print((int)batPercent);
+    display.print("%");
+
+    // Pictograma baterie integrata
+    display.drawRect(70, 36, 40, 12, SSD1306_WHITE);
+    display.fillRect(110, 39, 3, 6,
+                     SSD1306_WHITE); // "Varful" bateriei (+ nipple)
+    // Fill interior in functie de procent (latime maxima 36 pixeli)
+    uint8_t fillW = map((int)batPercent, 0, 100, 0, 36);
+    display.fillRect(72, 38, fillW, 8, SSD1306_WHITE);
+
+    // Estimare Timp Ramas (Capacitate totala celula: 3200mAh)
+    display.setCursor(5, 52);
+    if (g_avgCurrent > 2.0f || g_avgCurrent < -2.0f) {
+      // Cat timp mai tine la curentul MEDIU FILTRAT
+      float hours = (3200.0f * (batPercent / 100.0f)) / fabs(g_avgCurrent);
+      int h = (int)hours;
+      int m = (int)((hours - h) * 60);
+
+      if (h > 99)
+        display.print("Time left: >99h");
+      else
+        display.printf("Time left: %02dh %02dm", h, m);
+    } else {
+      display.print("Time left: ---");
+    }
 
   } else if (g_displayPage == 2) {
     drawHeader("SYSTEM STATS");
@@ -262,8 +301,15 @@ void setup() {
 
   if (!ina219.begin())
     Serial.println(F("INA219 error!"));
-  if (!rtc.begin())
+
+  if (!rtc.begin()) {
     Serial.println(F("RTC error!"));
+  } else {
+    // Sincronizeaza ceasul hardware cu ora exacta la care a fost compilat codul
+    // pe PC. Pune pe comentariu aceasta linie DUPA primul upload, ca sa nu dea
+    // reset la timp decat daca se pierde bateria RTC CR2032!
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
 
   esp_register_freertos_idle_hook(idle_task_hook);
   delay(1000);
