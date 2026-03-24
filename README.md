@@ -1,4 +1,4 @@
-# <p align="center"> <img src="assets/logo_squared.png" width="100"> <br> Team Low Stress Casuals - H&S 2026 </p>
+# <p align="center"> <img src="assets/logo_squared.png" width="400"> <br> Team Low Stress Casuals - H&S 2026 </p>
 
 ## Sistem de Monitorizare IoT cu ESP32-C3 Super Mini
 
