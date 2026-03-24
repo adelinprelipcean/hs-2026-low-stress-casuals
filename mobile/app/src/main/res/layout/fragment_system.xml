@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- Network & System Info Grid -->
+        <com.google.android.material.card.MaterialCardView
+            style="?attr/materialCardViewFilledStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp"
+            app:cardBackgroundColor="?attr/colorSurfaceVariant"
+            app:cardCornerRadius="28dp"
+            app:strokeWidth="0dp">
+
+            <GridLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2"
+                android:padding="20dp"
+                android:alignmentMode="alignMargins"
+                android:columnOrderPreserved="false">
+
+                <TextView android:text="@string/label_network" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:alpha="0.7" />
+                <TextView android:id="@+id/tvNetwork" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+
+                <TextView android:text="@string/label_rssi" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:layout_marginTop="8dp" android:alpha="0.7" />
+                <TextView android:id="@+id/tvRSSI" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+
+                <TextView android:text="@string/label_cpu_load" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:layout_marginTop="8dp" android:alpha="0.7" />
+                <TextView android:id="@+id/tvCpuLoad" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+
+                <TextView android:text="@string/label_voltage" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:layout_marginTop="8dp" android:alpha="0.7" />
+                <TextView android:id="@+id/tvVoltage" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+
+                <TextView android:text="@string/label_current_now" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:layout_marginTop="8dp" android:alpha="0.7" />
+                <TextView android:id="@+id/tvCurrentNow" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+
+                <TextView android:text="@string/label_current_total" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:layout_marginTop="8dp" android:alpha="0.7" />
+                <TextView android:id="@+id/tvCurrentTotal" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+
+                <TextView android:text="@string/label_battery_life" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:layout_marginTop="8dp" android:alpha="0.7" />
+                <TextView android:id="@+id/tvBatteryLife" android:text="@string/default_value" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="@color/value_blue" android:textStyle="bold" />
+            </GridLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

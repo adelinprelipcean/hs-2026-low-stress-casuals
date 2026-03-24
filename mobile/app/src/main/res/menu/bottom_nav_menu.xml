@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_main"
+        android:icon="@android:drawable/ic_menu_view"
+        android:title="Main" />
+    <item
+        android:id="@+id/nav_temperature"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:title="Temp" />
+    <item
+        android:id="@+id/nav_light"
+        android:icon="@android:drawable/ic_menu_day"
+        android:title="Light" />
+    <item
+        android:id="@+id/nav_cpu"
+        android:icon="@android:drawable/ic_menu_manage"
+        android:title="CPU" />
+    <item
+        android:id="@+id/nav_power"
+        android:icon="@android:drawable/ic_menu_send"
+        android:title="Power" />
+    <item
+        android:id="@+id/nav_wifi"
+        android:icon="@android:drawable/ic_menu_info_details"
+        android:title="WiFi" />
+</menu>

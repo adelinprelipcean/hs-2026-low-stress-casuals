@@ -1,4 +1,16 @@
-# <p align="center"> <img src="assets/logo_squared.png" width="100"> <br> Team Low Stress Casuals - H&S 2026 </p>
+# <p align="center"> <img src="assets/logo_squared.png" width="400"> <br> Low Stress Casuals - H&S 2026 </p>
+
+# Componența echipei #
+
+## Hardware ##
+
+Prelipcean Radu-Adelin - https://github.com/adelinprelipcean</br>
+Rusu Alexandru - https://github.com/alexandru-rusuu
+
+## Software ##
+
+Boca Gheorghe - https://github.com/georgeboca1</br>
+Oprițescu Cosmin - https://github.com/OpritescuCosminMihai
 
 ## Sistem de Monitorizare IoT cu ESP32-C3 Super Mini
 

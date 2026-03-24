@@ -1,0 +1,21 @@
+# Android Studio / IntelliJ
+*.iml
+.idea/
+
+# Gradle
+.gradle/
+**/build/
+
+# Local configuration
+local.properties
+
+# NDK / CMake
+.externalNativeBuild/
+.cxx/
+
+# Generated captures
+captures/
+
+# OS files
+.DS_Store
+Thumbs.db

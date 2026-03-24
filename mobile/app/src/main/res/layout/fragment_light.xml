@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/windowBackground">
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_margin="12dp"
+        app:cardCornerRadius="0dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="24dp"
+            android:gravity="center_horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Light Intensity"
+                android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+
+            <TextView
+                android:id="@+id/tvLightValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-- Lux"
+                android:textAppearance="@style/TextAppearance.Material3.DisplayLarge"
+                android:textColor="@color/value_blue"
+                android:layout_marginTop="16dp" />
+
+            <TextView
+                android:id="@+id/tvLightStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ambient Light"
+                android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                android:alpha="0.7" />
+
+            <com.github.mikephil.charting.charts.LineChart
+                android:id="@+id/chartLightLarge"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginTop="24dp" />
+
+            <GridLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:columnCount="2"
+                android:layout_marginTop="24dp">
+
+                <TextView android:text="Sensor Gain" android:alpha="0.6"/>
+                <TextView android:id="@+id/tvLightGain" android:text="Auto" android:gravity="end" android:layout_gravity="fill_horizontal" android:textColor="@color/value_blue" android:textStyle="bold"/>
+
+                <TextView android:text="Integration Time" android:alpha="0.6" android:layout_marginTop="8dp"/>
+                <TextView android:id="@+id/tvLightIntegration" android:text="100ms" android:gravity="end" android:layout_gravity="fill_horizontal" android:layout_marginTop="8dp" android:textColor="@color/value_blue" android:textStyle="bold"/>
+            </GridLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+</LinearLayout>
