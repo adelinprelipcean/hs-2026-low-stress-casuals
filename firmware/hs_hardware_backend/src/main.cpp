@@ -467,10 +467,27 @@ void updateDisplay() {
       if (barW > 0) {
         display.fillRect(6, 55, barW, 1, SSD1306_WHITE);
       }
-    } else {
-      display.setCursor(25, 30);
-      display.println("Disconnected.");
     }
+  } else if (g_displayPage == 4) {
+    drawHeader("SYSTEM STATS");
+    display.setTextSize(1);
+    display.setCursor(4, 20);
+    display.print("CPU Load:");
+    display.setTextSize(2);
+    display.setCursor(45, 16);
+    display.print(g_cpuLoad, 1);
+    display.print("%");
+    
+    display.drawLine(5, 36, 123, 36, SSD1306_WHITE);
+    
+    display.setTextSize(1);
+    display.setCursor(4, 45);
+    display.print("Time: ");
+    display.print(g_timestamp);
+    display.setCursor(4, 55);
+    display.print("Uptime: ");
+    display.print(millis() / 60000);
+    display.print(" min");
   }
 
   // Draw page navigation indicators (centered, MAX_PAGES pages)
