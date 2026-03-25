@@ -49,7 +49,7 @@ WebServer server(80);
 // Hardware Calibration
 // Temperature offset to compensate for component tolerances
 // ---------------------------------------------------------
-#define TEMP_CALIBRATION_OFFSET -5.0f
+#define TEMP_CALIBRATION_OFFSET -1.2f
 
 // ---------------------------------------------------------
 // Telemetry State
@@ -121,6 +121,22 @@ uint8_t readPCF8591(uint8_t channel) {
   return 255;
 }
 
+float calculateTemperature(uint8_t rawNTC) {
+  if (rawNTC == 255 || rawNTC == 0) return -99.0f;
+  uint8_t tmpNTC = (rawNTC >= 255) ? 254 : rawNTC;
+  
+  // Divider resistor (SMD) is 10k
+  float ratio = (float)tmpNTC / (255.0f - (float)tmpNTC);
+  float resistance = 10000.0f * ratio;
+
+  // R_0 factor at 25C is 100k, Beta is 3950
+  float steinhart = logf(resistance / 100000.0f) / 3950.0f + 1.0f / (25.0f + 273.15f);
+  steinhart = 1.0f / steinhart - 273.15f; // Raw Celsius
+  
+  steinhart += TEMP_CALIBRATION_OFFSET;
+  return (steinhart < -40.0f || steinhart > 125.0f) ? -99.0f : steinhart;
+}
+
 // ---------------------------------------------------------
 // Sensor Read (called 1Hz)
 // ---------------------------------------------------------
@@ -140,38 +156,45 @@ void readSensors() {
   // --- PCF8591 ---
   delay(10);
   g_rawAIN0 = readPCF8591(0); // AIN0: LDR
-  delay(2);
-  g_rawAIN1 = readPCF8591(1); // AIN1: NTC Thermistor
-  delay(2);
-  g_rawAIN2 = readPCF8591(2); // AIN2: Reserved
-  delay(2);
-  g_rawAIN3 = readPCF8591(3); // AIN3: Reserved
+  delay(5);
 
-  uint8_t rawLDR = g_rawAIN0;
-  uint8_t rawNTC = g_rawAIN1;
+  // Temperature Oversampling & Smoothing
+  float tempSum = 0;
+  uint16_t rawSum = 0;
+  uint8_t validSamples = 0;
+  for (int i = 0; i < 8; i++) {
+    uint8_t r = readPCF8591(1);
+    float t = calculateTemperature(r);
+    if (t > -90.0f) {
+      tempSum += t;
+      rawSum += r;
+      validSamples++;
+    }
+    delay(2);
+  }
+  
+  if (validSamples > 0) {
+    g_rawAIN1 = rawSum / validSamples;
+    float instantTemp = tempSum / validSamples;
+    // EMA Filter: alpha = 0.2 (low pass)
+    if (g_temperature < -90.0f) g_temperature = instantTemp;
+    else g_temperature = (g_temperature * 0.8f) + (instantTemp * 0.2f);
+  } else {
+    g_rawAIN1 = 255;
+    g_temperature = -99.0f;
+  }
 
+  g_rawAIN2 = readPCF8591(2);
+  delay(2);
+  g_rawAIN3 = readPCF8591(3);
+  delay(2);
+  
   // Illuminance calculation based on HW-011 and LDR GL5528
+  uint8_t rawLDR = g_rawAIN0;
   uint8_t safeRawLDR = (rawLDR == 0) ? 1 : ((rawLDR >= 255) ? 254 : rawLDR);
   float voutLdr = safeRawLDR * (3.3f / 255.0f);
   float rLdr = (10000.0f * voutLdr) / (3.3f - voutLdr); // 10k pull-up resistor
   g_lightLux = 500000.0f / rLdr; // Lux approximation (logarithmic curve based)
-
-  // NTC Calculations (tuned for 100k thermistor)
-  uint8_t tmpNTC = (rawNTC == 0) ? 1 : ((rawNTC >= 255) ? 254 : rawNTC);
-
-  // Divider resistor (SMD) is 10k
-  float resistance = 10000.0f * ((float)tmpNTC / (255.0f - (float)tmpNTC));
-
-  // R_0 factor at 25C is 100k
-  float steinhart =
-      logf(resistance / 100000.0f) / 3950.0f + 1.0f / (25.0f + 273.15f);
-  steinhart = 1.0f / steinhart - 273.15f; // Raw Celsius
-
-  // Apply calibration offset
-  steinhart += TEMP_CALIBRATION_OFFSET;
-
-  g_temperature =
-      (steinhart < -40.0f || steinhart > 125.0f) ? -99.0f : steinhart;
 
   // --- INA219 ---
   delay(5);
