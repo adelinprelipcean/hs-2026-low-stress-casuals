@@ -15,6 +15,7 @@
 extern "C" {
 #include "esp_freertos_hooks.h"
 }
+#include <esp_wifi.h>
 
 // ---------------------------------------------------------
 // Configuration
@@ -103,12 +104,19 @@ uint8_t readPCF8591(uint8_t channel) {
   uint8_t configByte = 0x40 | (channel & 0x03);
   Wire.beginTransmission(PCF8591_ADDR);
   Wire.write(configByte);
-  Wire.endTransmission(true); // Forced stop
-  delay(2);
-  Wire.requestFrom(PCF8591_ADDR, 2);
-  if (Wire.available() >= 2) {
-    Wire.read();
-    return Wire.read();
+  
+  // Daca endTransmission returneaza altceva decat 0, inseamna ca bus-ul e blocat
+  if (Wire.endTransmission(true) != 0) {
+    Serial.println("I2C Bus Error la PCF8591!");
+    return 255; 
+  }
+  
+  delay(5); // Timp pentru conversie ADC
+  
+  uint8_t count = Wire.requestFrom(PCF8591_ADDR, (uint8_t)2);
+  if (count >= 2) {
+    Wire.read(); // Ignoram primul byte (vechi)
+    return Wire.read(); // Returnam valoarea actuala
   }
   return 255;
 }
@@ -732,7 +740,8 @@ void setup() {
   maxIdleCount = idleCounter;
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setClock(100000);
+  Wire.setClock(100000); // 100kHz e mai stabil decat 400kHz
+  Wire.setTimeOut(50);    // Anti-freeze: Limit wait to 50ms
 
   pinMode(BTN1_PIN, INPUT_PULLUP);
   pinMode(BTN2_PIN, INPUT_PULLUP);
@@ -802,6 +811,7 @@ void setup() {
   }
   // -------------------------
   addLog("WiFi Setup complete");
+  esp_wifi_set_ps(WIFI_PS_NONE); // Fortam antena sa stea pornita constant (previne lockup-uri I2C)
 
   server.on("/", HTTP_GET, []() {
     server.sendHeader("Location", "/logs");
