@@ -4,11 +4,12 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <RTClib.h>
-#include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <Wire.h>
+#include <WebServer.h>
+#include "secrets.h"
 
 extern "C" {
 #include "esp_freertos_hooks.h"
@@ -30,15 +31,15 @@ extern "C" {
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_INA219 ina219;
 RTC_DS3231 rtc;
-WebServer server(80);
 
-const char *mqtt_server = "13c35f0a5bde4564be3ea561c26c7c3b.s1.eu.hivemq.cloud";
-const int mqtt_port = 8883;
-const char *mqtt_user = "esp32mqtt";
-const char *mqtt_pass = "L7sqBG*9+w2m";
+const char *mqtt_server = MQTT_SERVER;
+const int mqtt_port = MQTT_PORT;
+const char *mqtt_user = MQTT_USER;
+const char *mqtt_pass = MQTT_PASS;
 
 WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
+WebServer server(80);
 
 #define PCF8591_ADDR 0x48
 
@@ -402,88 +403,6 @@ void pollButtons() {
   lastBtn2 = btn2;
 }
 
-void handleRoot() {
-  String html = "<html><head><meta name='viewport' "
-                "content='width=device-width, initial-scale=1.0'>";
-  html += "<style>body{font-family: Arial, sans-serif; text-align: center; "
-          "background-color: #f0f2f5; margin-top: 30px;}";
-  html += ".card{background: white; max-width: 400px; margin: auto; padding: "
-          "25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);}";
-  html += "h1{color: #333;} h3{color: #666;} .data{font-size: 1.2em; "
-          "font-weight: bold; color: #007bff;}</style></head><body>";
-  html += "<div class='card'>";
-  html += "<h1>Low Stress Casuals</h1>";
-  html += "<h3>Hardware Monitor Status</h3><hr>";
-  html += "<p>Temperature: <span class='data'>" + String(g_temperature, 1) +
-          " &deg;C</span></p>";
-  html += "<p>Illuminance: <span class='data'>" + String((int)g_lightLux) +
-          " Lux</span></p>";
-  html += "<p>Battery: <span class='data'>" + String(g_voltage, 2) + " V (" +
-          String(g_current, 1) + " mA)</span></p>";
-  html += "<p>CPU Load: <span class='data'>" + String(g_cpuLoad, 1) +
-          " %</span></p>";
-
-  int rssiPercent = map(WiFi.RSSI(), -100, -50, 0, 100);
-  rssiPercent = constrain(rssiPercent, 0, 100);
-  html += "<p>WiFi Signal: <span class='data'>" + String(WiFi.RSSI()) +
-          " dBm (" + String(rssiPercent) + "%)</span></p>";
-  html += "<div style='width: 100%; height: 12px; background: #e0e0e0; "
-          "border-radius: 6px; overflow: hidden; margin-top: 5px;'>";
-  html +=
-      "<div style='width: " + String(rssiPercent) +
-      "%; height: 100%; background: #4CAF50; border-radius: 6px;'></div></div>";
-
-  html += "<p style='margin-top:20px; font-size: 0.9em; color:#888;'>Time: " +
-          String(g_timestamp) + "</p>";
-  html += "</div></body></html>";
-
-  server.send(200, "text/html", html);
-}
-
-void handleApiData() {
-  String json = "{";
-  json += "\"time\":\"" + String(g_timestamp) + "\",";
-  json += "\"cpu_load_pct\":" + String(g_cpuLoad, 1) + ",";
-  json += "\"wifi_rssi_dbm\":" + String(WiFi.RSSI()) + ",";
-
-  json += "\"pcf8591_ain0_raw\":" + String(g_rawAIN0) + ",";
-  json += "\"pcf8591_ain1_raw\":" + String(g_rawAIN1) + ",";
-  json += "\"pcf8591_ain2_raw\":" + String(g_rawAIN2) + ",";
-  json += "\"pcf8591_ain3_raw\":" + String(g_rawAIN3) + ",";
-
-  json += "\"sensor_light_lux\":" + String(g_lightLux, 1) + ",";
-  json += "\"sensor_temperature_c\":" + String(g_temperature, 1) + ",";
-
-  json += "\"ina219_voltage_v\":" + String(g_voltage, 3) + ",";
-  json += "\"ina219_current_ma\":" + String(g_current, 1) + ",";
-  json += "\"ina219_total_mah\":" + String(g_totalMah, 2) + ",";
-
-  json += "\"digital_btn1_pressed\":" + String(g_btn1State ? "true" : "false") +
-          ",";
-  json += "\"digital_btn2_pressed\":" + String(g_btn2State ? "true" : "false") +
-          ",";
-
-  json += "\"io_ports\":{";
-  json += "\"GPIO0\":" + String(digitalRead(0)) + ",";
-  json += "\"GPIO1\":" + String(digitalRead(1)) + ",";
-  json += "\"GPIO2\":" + String(digitalRead(2)) + ",";
-  json += "\"GPIO3\":" + String(digitalRead(3)) + ",";
-  json += "\"GPIO4\":" + String(digitalRead(4)) + ",";
-  json += "\"GPIO5\":" + String(digitalRead(5)) + ",";
-  json += "\"GPIO6\":" + String(digitalRead(6)) + ",";
-  json += "\"GPIO7\":" + String(digitalRead(7)) + ",";
-  json += "\"GPIO8\":" + String(digitalRead(8)) + ",";
-  json += "\"GPIO9\":" + String(digitalRead(9)) + ",";
-  json += "\"GPIO10\":" + String(digitalRead(10)) + ",";
-  json += "\"GPIO20\":" + String(digitalRead(20)) + ",";
-  json += "\"GPIO21\":" + String(digitalRead(21));
-  json += "}";
-
-  json += "}";
-
-  server.send(200, "application/json", json);
-}
-
 void reconnectMQTT() {
   if (WiFi.status() != WL_CONNECTED)
     return;
@@ -506,10 +425,7 @@ void reconnectMQTT() {
   }
 }
 
-void publishMQTT() {
-  if (!mqttClient.connected())
-    return;
-
+String getTelemetryJSON() {
   float batPercent = (g_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
   batPercent = constrain(batPercent, 0.0f, 100.0f);
   String batLifeStr = "N/A";
@@ -551,8 +467,115 @@ void publishMQTT() {
   json += "\"current_total\":" + String(g_totalMah, 2) + ",";
   json += "\"battery_life\":\"" + batLifeStr + "\"";
   json += "}";
+  
+  return json;
+}
 
+void publishMQTT() {
+  if (!mqttClient.connected())
+    return;
+
+  String json = getTelemetryJSON();
   mqttClient.publish("hs2026/telemetry", json.c_str());
+}
+
+void handleGetInfo() {
+  // CORS suport just in case for web interface
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "application/json", getTelemetryJSON());
+}
+
+void handleWifiStatus() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  String json = "{";
+  json += "\"connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+  json += "\"ssid\":\"" + WiFi.SSID() + "\",";
+  json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+  json += "\"rssi\":" + String(WiFi.RSSI());
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+void handleResetWiFi() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "text/plain", "Resetting WiFi credentials. ESP will restart and open config portal (AP: HS_Sensor_Setup / 12345678).");
+  delay(500);
+  WiFiManager wm;
+  wm.resetSettings();  // Sterge SSID/parola salvate din NVS
+  ESP.restart();
+}
+
+void handleWifiPage() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  String html = R"rawhtml(
+<!DOCTYPE html><html lang='en'><head>
+<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>WiFi Management - HS Sensor</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:32px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  h1{font-size:1.4rem;font-weight:700;color:#f8fafc;margin-bottom:4px}
+  .sub{font-size:.85rem;color:#64748b;margin-bottom:28px}
+  .badge{display:inline-block;padding:4px 12px;border-radius:9999px;font-size:.75rem;font-weight:600;margin-bottom:20px}
+  .badge.ok{background:#064e3b;color:#6ee7b7}
+  .badge.err{background:#450a0a;color:#fca5a5}
+  .row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #1e293b;font-size:.9rem}
+  .row:last-of-type{border:none}
+  .label{color:#94a3b8}
+  .val{font-weight:600;color:#f1f5f9}
+  .btn{display:block;width:100%;margin-top:28px;padding:14px;border:none;border-radius:10px;font-size:1rem;font-weight:600;cursor:pointer;transition:all .2s}
+  .btn-danger{background:#dc2626;color:#fff}
+  .btn-danger:hover{background:#b91c1c;transform:translateY(-1px)}
+  .btn-danger:active{transform:translateY(0)}
+  .note{margin-top:16px;font-size:.78rem;color:#475569;text-align:center;line-height:1.5}
+  #status-msg{margin-top:16px;padding:12px;border-radius:8px;font-size:.85rem;display:none;text-align:center}
+  #status-msg.show{display:block;background:#1c1917;border:1px solid #57534e;color:#d6d3d1}
+</style>
+</head><body>
+<div class='card'>
+  <h1>&#127760; WiFi Management</h1>
+  <p class='sub'>HS Sensor Node &mdash; Network Control</p>
+  <div id='badge' class='badge'>Loading...</div>
+  <div class='row'><span class='label'>Network (SSID)</span><span class='val' id='ssid'>-</span></div>
+  <div class='row'><span class='label'>IP Address</span><span class='val' id='ip'>-</span></div>
+  <div class='row'><span class='label'>Signal (RSSI)</span><span class='val' id='rssi'>-</span></div>
+  <button class='btn btn-danger' onclick='doReset()'>&#8635; Change WiFi Network</button>
+  <div id='status-msg'></div>
+  <p class='note'>ESP will restart and open the config portal.<br>Connect to <b>HS_Sensor_Setup</b> (pwd: <b>12345678</b>) to choose a new network.</p>
+</div>
+<script>
+async function loadStatus(){
+  try{
+    const r=await fetch('/wifi_status');
+    const d=await r.json();
+    const b=document.getElementById('badge');
+    if(d.connected){b.textContent='Connected';b.className='badge ok';}else{b.textContent='Disconnected';b.className='badge err';}
+    document.getElementById('ssid').textContent=d.ssid||'N/A';
+    document.getElementById('ip').textContent=d.ip||'N/A';
+    document.getElementById('rssi').textContent=d.rssi?d.rssi+' dBm':'N/A';
+  }catch(e){console.error(e);}
+}
+async function doReset(){
+  const msg=document.getElementById('status-msg');
+  msg.textContent='Sending reset command...';
+  msg.className='status-msg show';
+  try{
+    const r=await fetch('/reset_wifi');
+    const t=await r.text();
+    msg.textContent='Done! '+t;
+    msg.style.display='block';
+  }catch(e){
+    msg.textContent='ESP is restarting... reconnect to HS_Sensor_Setup AP.';
+    msg.style.display='block';
+  }
+}
+loadStatus();
+setInterval(loadStatus,5000);
+</script>
+</body></html>
+)rawhtml";
+  server.send(200, "text/html", html);
 }
 
 void setup() {
@@ -635,21 +658,22 @@ void setup() {
   }
   // -------------------------
 
-  server.on("/", handleRoot);
-  server.on("/api/data", handleApiData);
-  server.begin();
-
   espClient.setInsecure(); // Fara verificare certificat pentru eficienta /
                            // compatibilitate
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setBufferSize(512); // Extindere buffer pt JSON lung
 
+  server.on("/get_info", HTTP_GET, handleGetInfo);
+  server.on("/wifi_status", HTTP_GET, handleWifiStatus);
+  server.on("/reset_wifi", HTTP_GET, handleResetWiFi);
+  server.on("/wifi", HTTP_GET, handleWifiPage);
+  server.begin();
+  Serial.println(F("HTTP server started"));
+
   delay(1500);
 }
 
 void loop() {
-  server.handleClient();
-
   if (!mqttClient.connected()) {
     reconnectMQTT();
   }
@@ -670,4 +694,10 @@ void loop() {
     pollButtons();
     updateDisplay();
   }
+
+  server.handleClient();
+
+  // Yield crucial catre task-ul Idle din FreeRTOS pentru a calcula CPU Load
+  // eficient si a nu bloca watchdog-ul
+  delay(2);
 }

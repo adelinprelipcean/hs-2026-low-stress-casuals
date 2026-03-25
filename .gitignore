@@ -19,3 +19,16 @@ captures/
 # OS files
 .DS_Store
 Thumbs.db
+
+# =============================================
+# Login Hivemq
+# =============================================
+firmware/hs_hardware_backend/include/secrets.h
+**/.env
+**/.env.local
+
+# =============================================
+# PlatformIO build artifacts
+# =============================================
+firmware/**/.pio/
+.pio/

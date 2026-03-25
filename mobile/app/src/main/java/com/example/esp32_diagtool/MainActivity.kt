@@ -14,11 +14,10 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
-import com.example.esp32_diagtool.api.EspService
 import com.example.esp32_diagtool.databinding.ActivityMainBinding
 import com.example.esp32_diagtool.fragments.LogFragment
 import com.example.esp32_diagtool.model.EspData
+import com.example.esp32_diagtool.mqtt.MqttManager
 import com.example.esp32_diagtool.utils.PreferenceManager
 import com.example.esp32_diagtool.utils.RoundedBackgroundSpan
 import com.example.esp32_diagtool.utils.TextFormatter
@@ -27,10 +26,6 @@ import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -38,9 +33,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var preferenceManager: PreferenceManager
     private val viewModel: MainViewModel by viewModels()
-    private var espService: EspService? = null
-    private var currentBaseUrl: String? = null
-    
+    private lateinit var mqttManager: MqttManager
+
     private var startTime = System.currentTimeMillis()
     private val themePurple = Color.parseColor("#D0BCFF")
 
@@ -54,7 +48,7 @@ class MainActivity : AppCompatActivity() {
 
         setupCharts()
         setupListeners()
-        startDataCollection()
+        startMqtt()
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -90,7 +84,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         binding.btnRetry.setOnClickListener {
             binding.errorView.visibility = View.GONE
-            startDataCollection()
+            startMqtt()
         }
 
         binding.cardLog.setOnClickListener {
@@ -183,38 +177,27 @@ class MainActivity : AppCompatActivity() {
         return Color.argb(alpha, red, green, blue)
     }
 
-    private fun startDataCollection() {
-        lifecycleScope.launch {
-            while (true) {
-                try {
-                    ensureRetrofit()
-                    val data = espService?.getInfo()
-                    if (data != null) {
-                        updateUI(data)
-                        viewModel.updateData(data)
-                        binding.errorView.visibility = View.GONE
-                        delay(1000)
-                    } else {
-                        throw Exception("Null data")
-                    }
-                } catch (e: Exception) {
-                    binding.errorView.visibility = View.VISIBLE
-                    delay(5000)
+    private fun startMqtt() {
+        mqttManager = MqttManager(
+            onDataReceived = { data ->
+                runOnUiThread {
+                    updateUI(data)
+                    viewModel.updateData(data)
+                    binding.errorView.visibility = View.GONE
+                }
+            },
+            onConnectionChanged = { connected ->
+                runOnUiThread {
+                    binding.errorView.visibility = if (connected) View.GONE else View.VISIBLE
                 }
             }
-        }
+        )
+        Thread { mqttManager.connect() }.start()
     }
 
-    private fun ensureRetrofit() {
-        val baseUrl = preferenceManager.serverUrl
-        if (espService == null || currentBaseUrl != baseUrl) {
-            currentBaseUrl = baseUrl
-            val retrofit = Retrofit.Builder()
-                .baseUrl(baseUrl)
-                .addConverterFactory(GsonConverterFactory.create())
-                .build()
-            espService = retrofit.create(EspService::class.java)
-        }
+    override fun onDestroy() {
+        super.onDestroy()
+        Thread { mqttManager.disconnect() }.start()
     }
 
     private fun updateUI(data: EspData) {

@@ -52,6 +52,7 @@ dependencies {
     implementation(libs.mpandroidchart)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
+    implementation(libs.paho.mqtt.client)
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
