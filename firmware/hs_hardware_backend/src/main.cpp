@@ -137,6 +137,18 @@ float calculateTemperature(uint8_t rawNTC) {
   return (steinhart < -40.0f || steinhart > 125.0f) ? -99.0f : steinhart;
 }
 
+float calculateLux(uint8_t rawLDR) {
+  uint8_t safeRawLDR = (rawLDR == 0) ? 1 : ((rawLDR >= 255) ? 254 : rawLDR);
+  float voutLdr = safeRawLDR * (3.3f / 255.0f);
+  // Divider formula: rLdr is between 3.3V and signal, 10k is between signal and GND
+  float rLdr = (10000.0f * voutLdr) / (3.3f - voutLdr);
+  if (rLdr < 1.0f) rLdr = 1.0f;
+
+  // Calibrated constant: 10,000,000 matches typical 150-200 Lux in lit rooms
+  float lux = 10000000.0f / rLdr;
+  return constrain(lux, 0.0f, 60000.0f);
+}
+
 // ---------------------------------------------------------
 // Sensor Read (called 1Hz)
 // ---------------------------------------------------------
@@ -155,7 +167,22 @@ void readSensors() {
 
   // --- PCF8591 ---
   delay(10);
-  g_rawAIN0 = readPCF8591(0); // AIN0: LDR
+  
+  // Lux Oversampling & Smoothing
+  float luxSum = 0;
+  uint16_t rawLdrSum = 0;
+  for (int i = 0; i < 8; i++) {
+    uint8_t r = readPCF8591(0); // AIN0: LDR
+    luxSum += calculateLux(r);
+    rawLdrSum += r;
+    delay(2);
+  }
+  g_rawAIN0 = rawLdrSum / 8;
+  float instantLux = luxSum / 8.0f;
+  // EMA Filter for Lux
+  if (g_lightLux <= 0) g_lightLux = instantLux;
+  else g_lightLux = (g_lightLux * 0.8f) + (instantLux * 0.2f);
+
   delay(5);
 
   // Temperature Oversampling & Smoothing
@@ -188,13 +215,6 @@ void readSensors() {
   delay(2);
   g_rawAIN3 = readPCF8591(3);
   delay(2);
-  
-  // Illuminance calculation based on HW-011 and LDR GL5528
-  uint8_t rawLDR = g_rawAIN0;
-  uint8_t safeRawLDR = (rawLDR == 0) ? 1 : ((rawLDR >= 255) ? 254 : rawLDR);
-  float voutLdr = safeRawLDR * (3.3f / 255.0f);
-  float rLdr = (10000.0f * voutLdr) / (3.3f - voutLdr); // 10k pull-up resistor
-  g_lightLux = 500000.0f / rLdr; // Lux approximation (logarithmic curve based)
 
   // --- INA219 ---
   delay(5);
