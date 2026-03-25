@@ -46,7 +46,7 @@ export const IoLogModule: React.FC<IoLogModuleProps> = ({ logs }) => {
         </div>
       </div>
       
-      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 custom-scrollbar" style={{ maxHeight: '300px' }}>
+      <div ref={scrollRef} onScroll={handleScroll} className="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 custom-scrollbar min-h-[300px] max-h-[300px]">
         {[...logs].reverse().map(log => {
           const date = new Date(log.timestamp);
           const timeString = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;

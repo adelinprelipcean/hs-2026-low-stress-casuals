@@ -16,6 +16,8 @@ export function useEsp32Telemetry() {
 
   const tempSmoother = useRef(new SmaSmoother(5));
   const lightSmoother = useRef(new SmaSmoother(5));
+  const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLogTimeRef = useRef<number>(0);
 
   useEffect(() => {
     const generateLog = (msg: string, type: IoLogEntry['type'] = 'INFO') => {
@@ -66,6 +68,14 @@ export function useEsp32Telemetry() {
       generateLog(`MQTT Error: ${err.message}`, 'ERROR');
     });
 
+    const resetWatchdog = () => {
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
+      watchdogRef.current = setTimeout(() => {
+        setCurrentData(prev => prev ? { ...prev, connected: false } : null);
+        generateLog('Connection lost: No data received for 10 seconds.', 'WARN');
+      }, 10000);
+    };
+
     const pushPayloadToState = (esp32Payload: Esp32Payload) => {
       const smoothedTemp = tempSmoother.current.addValue(esp32Payload.temperature);
       const smoothedLight = lightSmoother.current.addValue(esp32Payload.light_intensity);
@@ -80,6 +90,7 @@ export function useEsp32Telemetry() {
         power: {
           voltage: esp32Payload.voltage,
           current: esp32Payload.current_now,
+          batteryPercentage: esp32Payload.battery_percentage,
           totalEnergy: esp32Payload.current_total,
           batteryLifeStr: esp32Payload.battery_life,
         },
@@ -95,10 +106,18 @@ export function useEsp32Telemetry() {
       setCurrentData(newData);
       setDataHistory((prev) => [...prev, newData].slice(-60));
 
-      generateLog(`[${esp32Payload.gpio_pin}] ${esp32Payload.io_log}`, 'DATA');
+      const now = Date.now();
+      // O dată la o secundă (1000 ms) înregistrăm un log
+      if (now - lastLogTimeRef.current >= 1000) {
+        generateLog(esp32Payload.io_log, 'DATA');
+        lastLogTimeRef.current = now;
+      }
+      
+      resetWatchdog();
     };
 
     return () => {
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
       client.end();
     };
   }, []);

@@ -11,6 +11,7 @@ export interface Esp32Payload {
   network_name: string;
   cpu_load: number;
   voltage: number;
+  battery_percentage: number;
   current_now: number;
   current_total: number;
   battery_life: string;
@@ -28,6 +29,7 @@ export interface TelemetryData {
   power: {
     voltage: number;
     current: number;
+    batteryPercentage: number;
     totalEnergy: number; // accumulated mAh or Joules
     batteryLifeStr: string; // directly mapping the ESP32 string
   };
