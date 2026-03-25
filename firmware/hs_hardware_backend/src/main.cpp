@@ -492,6 +492,7 @@ String getTelemetryJSON() {
   json += "\"network_name\":\"" + WiFi.SSID() + "\",";
   json += "\"cpu_load\":" + String(g_cpuLoad, 1) + ",";
   json += "\"voltage\":" + String(g_voltage, 2) + ",";
+  json += "\"battery_percentage\":" + String(batPercent, 1) + ",";
   json += "\"current_now\":" + String(g_current, 1) + ",";
   json += "\"current_total\":" + String(g_totalMah, 2) + ",";
   json += "\"battery_life\":\"" + batLifeStr + "\"";
