@@ -505,13 +505,12 @@ void pollButtons() {
   g_btn2State = (btn2 == LOW);
 
   if (btn1 == LOW && lastBtn1 == HIGH) {
-    g_displayPage = (g_displayPage + 1) % MAX_PAGES;
-    addLog("Page Next: " + String(g_displayPage));
+    g_displayPage = (g_displayPage == 0) ? (MAX_PAGES - 1) : (g_displayPage - 1);
+    addLog("Page Prev: " + String(g_displayPage));
   }
   if (btn2 == LOW && lastBtn2 == HIGH) {
-    g_displayPage =
-        (g_displayPage == 0) ? (MAX_PAGES - 1) : (g_displayPage - 1);
-    addLog("Page Prev: " + String(g_displayPage));
+    g_displayPage = (g_displayPage + 1) % MAX_PAGES;
+    addLog("Page Next: " + String(g_displayPage));
   }
   lastBtn1 = btn1;
   lastBtn2 = btn2;
