@@ -59,6 +59,8 @@ float g_voltage = 0;
 float g_current = 0;
 float g_avgCurrent = 0; // Stabilizes "Time Left" calculation
 float g_totalMah = 0;
+bool g_isBatteryCritical = false;
+#define BATTERY_CRITICAL_THRESHOLD 3.1f
 float g_cpuLoad = 0;
 char g_timestamp[32] = "--:--:--";
 uint8_t g_displayPage = 0;
@@ -176,6 +178,12 @@ void readSensors() {
 
   g_totalMah += g_avgCurrent * (1.0f / 3600.0f);
 
+  // --- Protection Check ---
+  // If voltage is realistically low but above noise (0.5V), trigger shutdown
+  if (g_voltage > 0.5f && g_voltage < BATTERY_CRITICAL_THRESHOLD) {
+      g_isBatteryCritical = true;
+  }
+
   // --- RTC ---
   delay(5);
   DateTime now = rtc.now();
@@ -244,6 +252,21 @@ void drawHeader(const char *title) {
 
 void updateDisplay() {
   display.clearDisplay();
+
+  if (g_isBatteryCritical) {
+    display.fillRect(0, 0, 128, 64, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK);
+    display.setTextSize(2);
+    display.setCursor(15, 10);
+    display.print("CRITICAL");
+    display.setCursor(20, 30);
+    display.print("BATTERY");
+    display.setTextSize(1);
+    display.setCursor(15, 50);
+    display.print("SHUTTING DOWN...");
+    display.display();
+    return;
+  }
 
   if (g_displayPage == 0) {
     drawHeader("ENVIRONMENT");
@@ -821,6 +844,15 @@ void loop() {
     lastDisplayMs = now;
     pollButtons();
     updateDisplay();
+  }
+
+  if (g_isBatteryCritical) {
+    addLog("CRITICAL BATTERY! Shutting down...");
+    updateDisplay(); // Show warning
+    delay(5000);     // Wait 5s for user to read
+    display.clearDisplay();
+    display.display();
+    esp_deep_sleep_start();
   }
 
   server.handleClient();
