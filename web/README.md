@@ -1,73 +1,39 @@
-# React + TypeScript + Vite
+﻿# React + Vite ESP32 Telemetry Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Bun venit la **ESP32 Telemetry Dashboard**! Această aplicație React a fost construită complet de la zero pentru a servi drept monitor în timp real pentru datele hardware transmise direct de un microcontroler ESP32-C3.
 
-Currently, two official plugins are available:
+## 🚀 Călătoria Proiectului
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Povestea acestui proiect a început cu o structură simplă de bază Vite + React. Obiectivul arhitectural inițial a fost construirea unui layout curat, tip terminal în dark-mode, care să conțină module individuale pentru diferite citiri hardware ale ESP32 (Mediu/Senzori, Managementul Energiei, Diagnostice de Sistem și Loguri I/O).
 
-## React Compiler
+### Faza 1: Structurare și Mocking
+Am dezvoltat mai întâi frontend-ul: componente modulare care gestionează totul, de la citirile de temperatură până la tensiunea bateriei și logica semnalului wireless. Pentru a testa interfața fără a avea un ESP32 asamblat la îndemână imediat, am conceput un sistem sofisticat de simulare (mocking) a telemetriei prin intermediul unui hook custom, `useEsp32Telemetry`. Acesta a permis aplicației să simuleze în mod sigur și realist fluctuațiile de rețea, scăderile de tensiune în timp și declanșările aleatorii ale pinilor GPIO.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Faza 2: De la Local la IoT
+Adevărata provocare a apărut când codul efectiv pentru ESP32 a fost configurat. Echipa noastră a optat pentru protocolul MQTT via **HiveMQ Cloud** pentru transmisii IoT rapide.
+Am transformat motorul de simulare într-un abonat MQTT activ pe bază de WebSockets. Am importat librăria `mqtt.js`, am stabilit conexiuni securizate WebSocket (WSS pe portul 8884) către HiveMQ și am conectat dashboard-ul la topicul IoT live.
 
-## Expanding the ESLint configuration
+### Faza 3: Perfecționarea Pachetului de Date (Payload-ului)
+În ultima etapă, colegii de la hardware au stabilit un format JSON specific pentru telemetrie, incluzând metrici precum `light_intensity`, `current_total`, și `io_log`. Am adaptat strict interfețele noastre TypeScript pentru a respecta exact acest standard de intrare, sincronizând complet dashboard-ul live cu array-urile reale de senzori în mod fluid.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🛠️ Stack Tehnologic & Funcționalități
+- **Framework & Unelte**: React, TypeScript, Vite
+- **Rețelistică**: `mqtt.js` (conectat prin WebSockets folosind wss:// către HiveMQ)
+- **UI & Grafice**: Tailwind CSS, Recharts pentru distribuții istorice în timp real sub formă de linii.
+- **Senzori Afișați**: Temperatura (°C), Intensitate Luminoasă (Lux), Încărcare CPU, Putere Semnal (RSSI), Tensiune (V), Curent (mA), citiri brute GPIO și Durata estimată a bateriei.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 🏃‍♂️ Rularea Interfeței Web
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Dacă dorești să pornești interfața web pentru a vedea datele de telemetrie primite:
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+1. Navighează în folderul `web` (sau `esp32-week1`).
+2. Instalează dependențele:
+   ```bash
+   npm install
+   ```
+3. Pornește serverul de dezvoltare:
+   ```bash
+   npm run dev
+   ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+*(Pentru a schimba configurarea sau host-ul HiveMQ, verifică fișierul `src/hooks/useEsp32Telemetry.ts`)*.
