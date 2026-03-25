@@ -595,9 +595,11 @@ void setup() {
   if (!rtc.begin()) {
     Serial.println(F("RTC error!"));
   } else {
-    // Sync hardware clock with compilation time.
-    // Comment this out after the first upload to prevent resetting the time.
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // Set the time only if the RTC lost power (e.g. battery was removed/empty)
+    if (rtc.lostPower()) {
+      Serial.println(F("RTC lost power, setting the time!"));
+      rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    }
   }
 
   // --- WiFiManager Setup ---
@@ -646,16 +648,7 @@ void setup() {
   }
   // -------------------------
 
-<<<<<<< HEAD
-  espClient.setInsecure(); // Fara verificare certificat pentru eficienta /
-                           // compatibilitate
-=======
-  server.on("/", handleRoot);
-  server.on("/api/data", handleApiData);
-  server.begin();
-
   espClient.setInsecure(); // No certificate verification for compatibility
->>>>>>> 8c5b45a41c81da6f4b9771ee10061934cac15906
   mqttClient.setServer(mqtt_server, mqtt_port);
   mqttClient.setBufferSize(512); // Extended buffer for large JSON payloads
 
