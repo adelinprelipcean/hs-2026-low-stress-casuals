@@ -44,11 +44,8 @@ WebServer server(80);
 #define PCF8591_ADDR 0x48
 
 // ---------------------------------------------------------
-// Calibrare Hardware
-// Modulul HW-011 foloseste rezistente si termistori cu toleranta mare (5-10%).
-// Aceasta valoare se aduna la temperatura calculata brut pentru a o alinia cu
-// un termostat. Ex: Daca ESP arata 25.5 si camera are 20.5, offset-ul este
-// -5.0f
+// Hardware Calibration
+// Temperature offset to compensate for component tolerances
 // ---------------------------------------------------------
 #define TEMP_CALIBRATION_OFFSET -5.0f
 
@@ -59,14 +56,14 @@ float g_temperature = 0;
 float g_lightLux = 0;
 float g_voltage = 0;
 float g_current = 0;
-float g_avgCurrent = 0; // Pentru a stabiliza "Time Left"
+float g_avgCurrent = 0; // Stabilizes "Time Left" calculation
 float g_totalMah = 0;
 float g_cpuLoad = 0;
 char g_timestamp[32] = "--:--:--";
 uint8_t g_displayPage = 0;
 #define MAX_PAGES 4
 
-// Stocare status brut pini
+// Raw pin status
 uint8_t g_rawAIN0 = 0;
 uint8_t g_rawAIN1 = 0;
 uint8_t g_rawAIN2 = 0;
@@ -86,13 +83,13 @@ bool idle_task_hook() {
 }
 
 // ---------------------------------------------------------
-// PCF8591 Raw I2C Read (Evita ESP32 Repeated Start Bug)
+// PCF8591 Raw I2C Read (Avoids ESP32 Repeated Start Bug)
 // ---------------------------------------------------------
 uint8_t readPCF8591(uint8_t channel) {
   uint8_t configByte = 0x40 | (channel & 0x03);
   Wire.beginTransmission(PCF8591_ADDR);
   Wire.write(configByte);
-  Wire.endTransmission(true); // Stop fortat
+  Wire.endTransmission(true); // Forced stop
   delay(2);
   Wire.requestFrom(PCF8591_ADDR, 2);
   if (Wire.available() >= 2) {
@@ -120,38 +117,37 @@ void readSensors() {
 
   // --- PCF8591 ---
   delay(10);
-  g_rawAIN0 = readPCF8591(0); // AIN0 = Fotorezistenta (LDR)
+  g_rawAIN0 = readPCF8591(0); // AIN0: LDR
   delay(2);
-  g_rawAIN1 = readPCF8591(1); // AIN1 = Termistorul NTC! (0x41)
+  g_rawAIN1 = readPCF8591(1); // AIN1: NTC Thermistor
   delay(2);
-  g_rawAIN2 = readPCF8591(2); // AIN2 libere pentru alte instrumente
+  g_rawAIN2 = readPCF8591(2); // AIN2: Reserved
   delay(2);
-  g_rawAIN3 = readPCF8591(3); // AIN3 liberate pentru alte instrumente
+  g_rawAIN3 = readPCF8591(3); // AIN3: Reserved
 
   uint8_t rawLDR = g_rawAIN0;
   uint8_t rawNTC = g_rawAIN1;
 
-  // Calculare Iluminare Lux conform model HW-011 si LDR GL5528
+  // Illuminance calculation based on HW-011 and LDR GL5528
   uint8_t safeRawLDR = (rawLDR == 0) ? 1 : ((rawLDR >= 255) ? 254 : rawLDR);
   float voutLdr = safeRawLDR * (3.3f / 255.0f);
   float rLdr = (10000.0f * voutLdr) /
-               (3.3f - voutLdr); // LDR legat la masa cu pull-up 10k
+               (3.3f - voutLdr); // 10k pull-up resistor
   g_lightLux = 500000.0f /
-               rLdr; // Aproximare Lux (depinde de curba logaritmica a LDR-ului)
+               rLdr; // Lux approximation (logarithmic curve based)
 
-  // Matematica NTC (Acel '-18C' dovedeste 100% ca ai un termistor de 100k, nu
-  // de 10k!)
+  // NTC Calculations (tuned for 100k thermistor)
   uint8_t tmpNTC = (rawNTC == 0) ? 1 : ((rawNTC >= 255) ? 254 : rawNTC);
 
-  // Rezistorul divizor de pe placuta (SMD) este de 10k
+  // Divider resistor (SMD) is 10k
   float resistance = 10000.0f * ((float)tmpNTC / (255.0f - (float)tmpNTC));
 
-  // R_0 pentru acest termistor este de fapt 100,000 ohmi (100k) la 25C!
+  // R_0 factor at 25C is 100k
   float steinhart =
       logf(resistance / 100000.0f) / 3950.0f + 1.0f / (25.0f + 273.15f);
-  steinhart = 1.0f / steinhart - 273.15f; // Celsius brut
+  steinhart = 1.0f / steinhart - 273.15f; // Raw Celsius
 
-  // Aplicam Offset-ul de Calibrare pentru compensarea erorilor pieselor fizice
+  // Apply calibration offset
   steinhart += TEMP_CALIBRATION_OFFSET;
 
   g_temperature =
@@ -162,8 +158,7 @@ void readSensors() {
   g_voltage = ina219.getBusVoltage_V();
   g_current = ina219.getCurrent_mA();
 
-  // Filtru EMA (Exponential Moving Average) foarte lent (Alpha = 0.05) ca sa nu
-  // sara "Time left" orbeste.
+  // Low-pass EMA Filter (Alpha = 0.05) to stabilize "Time left" estimation
   if (g_avgCurrent == 0)
     g_avgCurrent = g_current;
   else
@@ -199,9 +194,7 @@ void drawWiFiBars(int16_t x, int16_t y) {
       if (i < bars) {
         display.fillRect(x + i * 3, y + 8 - h, 2, h, SSD1306_BLACK);
       } else {
-        // Un drawRect de latime 2 pixeli este de fapt la fel ca un fillRect.
-        // Pentru empty bars, desenam doar baza (un punct / o linie scurta la
-        // fund).
+        // Draw base line for empty bars
         display.drawLine(x + i * 3, y + 7, x + i * 3 + 1, y + 7, SSD1306_BLACK);
       }
     }
@@ -267,7 +260,7 @@ void updateDisplay() {
     drawHeader("18650 MH1 BATTERY");
     display.setTextSize(1);
 
-    // Tensiune si Curent
+    // Voltage and Current
     display.setCursor(4, 20);
     display.print("V:");
     display.setCursor(20, 20);
@@ -281,30 +274,29 @@ void updateDisplay() {
 
     display.drawLine(5, 31, 123, 31, SSD1306_WHITE);
 
-    // Calcul % Baterie INR18650MH1 (LG 3200mAh)
-    // Curba standard: 4.2V (100%) - 3.0V (0% pentru o utilizare sigura pe
-    // ESP32)
+    // Battery % for INR18650MH1 (LG 3200mAh)
+    // Safe range: 3.0V (0%) to 4.2V (100%)
     float batPercent = (g_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
     batPercent = constrain(batPercent, 0.0f, 100.0f);
 
-    // Afisare procent
+    // Display percentage
     display.setCursor(5, 38);
     display.print("Bat:");
     display.print((int)batPercent);
     display.print("%");
 
-    // Pictograma baterie integrata
+    // Battery icon
     display.drawRect(70, 36, 40, 12, SSD1306_WHITE);
     display.fillRect(110, 39, 3, 6,
-                     SSD1306_WHITE); // "Varful" bateriei (+ nipple)
-    // Fill interior in functie de procent (latime maxima 36 pixeli)
+                     SSD1306_WHITE); // Positive terminal
+    // Capacity fill (max width 36px)
     uint8_t fillW = map((int)batPercent, 0, 100, 0, 36);
     display.fillRect(72, 38, fillW, 8, SSD1306_WHITE);
 
-    // Estimare Timp Ramas (Capacitate totala celula: 3200mAh)
+    // Remaining time estimation (Cell capacity: 3200mAh)
     display.setCursor(5, 52);
     if (g_avgCurrent > 2.0f || g_avgCurrent < -2.0f) {
-      // Cat timp mai tine la curentul MEDIU FILTRAT
+      // Estimated hours using filtered average current
       float hours = (3200.0f * (batPercent / 100.0f)) / fabs(g_avgCurrent);
       int h = (int)hours;
       int m = (int)((hours - h) * 60);
@@ -362,7 +354,7 @@ void updateDisplay() {
       display.print(rssiPercent);
       display.print("%)");
 
-      // Draw slider pe OLED (grafic procentaj WiFi)
+      // Draw WiFi signal percentage bar
       display.drawRect(4, 53, 120, 5, SSD1306_WHITE);
       uint8_t barW = map(rssiPercent, 0, 100, 0, 116);
       if (barW > 0) {
@@ -374,8 +366,7 @@ void updateDisplay() {
     }
   }
 
-  // Deseneaza cerculetele de navigare jos (centrate pentru 4 pagini -> latime
-  // totala 30px -> start la 49px)
+  // Draw page navigation indicators (centered, 4 pages)
   for (uint8_t i = 0; i < MAX_PAGES; i++) {
     if (i == g_displayPage)
       display.fillCircle(49 + (i * 10), 61, 2, SSD1306_WHITE);
@@ -582,8 +573,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  // Masuram "idleCount" brut, de referinta baza inainte ca librariile de WiFi
-  // sa inceapa pachetele pe background.
+  // Measure raw baseline idle count before WiFi background tasks start
   esp_register_freertos_idle_hook(idle_task_hook);
   delay(1000);
   maxIdleCount = idleCounter;
@@ -597,7 +587,7 @@ void setup() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     Serial.println(F("SSD1306 error!"));
   drawMinimalistLogo();
-  delay(2000); // Tine logo-ul LOW STRESS CASUALS activ timp de 2 secunde
+  delay(2000); // Display logo for 2 seconds
 
   if (!ina219.begin())
     Serial.println(F("INA219 error!"));
@@ -605,9 +595,8 @@ void setup() {
   if (!rtc.begin()) {
     Serial.println(F("RTC error!"));
   } else {
-    // Sincronizeaza ceasul hardware cu ora exacta la care a fost compilat codul
-    // pe PC. Pune pe comentariu aceasta linie DUPA primul upload, ca sa nu dea
-    // reset la timp decat daca se pierde bateria RTC CR2032!
+    // Sync hardware clock with compilation time.
+    // Comment this out after the first upload to prevent resetting the time.
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
 
@@ -648,8 +637,7 @@ void setup() {
   // Optional: Set timeout so it doesn't block forever if user doesn't setup
   wm.setConfigPortalTimeout(180); // 3 minutes timeout
 
-  // Folosim WPA2 cu parola deoarece unele telefoane refuza Open AP fara
-  // internet
+  // Use WPA2 password to prevent phones from rejecting an Open AP without internet
   if (!wm.autoConnect("HS_Sensor_Setup", "12345678")) {
     Serial.println(F("Failed to connect and hit timeout"));
     delay(3000);
@@ -658,10 +646,18 @@ void setup() {
   }
   // -------------------------
 
+<<<<<<< HEAD
   espClient.setInsecure(); // Fara verificare certificat pentru eficienta /
                            // compatibilitate
+=======
+  server.on("/", handleRoot);
+  server.on("/api/data", handleApiData);
+  server.begin();
+
+  espClient.setInsecure(); // No certificate verification for compatibility
+>>>>>>> 8c5b45a41c81da6f4b9771ee10061934cac15906
   mqttClient.setServer(mqtt_server, mqtt_port);
-  mqttClient.setBufferSize(512); // Extindere buffer pt JSON lung
+  mqttClient.setBufferSize(512); // Extended buffer for large JSON payloads
 
   server.on("/get_info", HTTP_GET, handleGetInfo);
   server.on("/wifi_status", HTTP_GET, handleWifiStatus);
