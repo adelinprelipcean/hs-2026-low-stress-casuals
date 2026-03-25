@@ -65,7 +65,7 @@ bool g_isBatteryCritical = false;
 float g_cpuLoad = 0;
 char g_timestamp[32] = "--:--:--";
 uint8_t g_displayPage = 0;
-#define MAX_PAGES 4
+#define MAX_PAGES 5
 
 // Raw pin status
 uint8_t g_rawAIN0 = 0;
