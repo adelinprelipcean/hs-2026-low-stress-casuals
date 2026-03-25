@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+:root {
+  background-color: #0f172a; /* Slate 900 for modern tech dark mode */
+  color: #f8fafc;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
