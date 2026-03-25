@@ -1,15 +1,16 @@
+#include "secrets.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_INA219.h>
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include <RTClib.h>
+#include <WebServer.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <Wire.h>
-#include <WebServer.h>
-#include "secrets.h"
+
 
 extern "C" {
 #include "esp_freertos_hooks.h"
@@ -72,6 +73,17 @@ bool g_btn1State = false;
 bool g_btn2State = false;
 
 // ---------------------------------------------------------
+// Logging System
+String g_logBuffer = "";
+void addLog(String msg) {
+  String line = String(g_timestamp) + " " + msg + "\n";
+  g_logBuffer += line;
+  if (g_logBuffer.length() > 6000) {
+    g_logBuffer = g_logBuffer.substring(1000);
+  }
+}
+
+// ---------------------------------------------------------
 // CPU Load (FreeRTOS Idle Hook)
 // ---------------------------------------------------------
 volatile uint32_t idleCounter = 0;
@@ -131,10 +143,8 @@ void readSensors() {
   // Illuminance calculation based on HW-011 and LDR GL5528
   uint8_t safeRawLDR = (rawLDR == 0) ? 1 : ((rawLDR >= 255) ? 254 : rawLDR);
   float voutLdr = safeRawLDR * (3.3f / 255.0f);
-  float rLdr = (10000.0f * voutLdr) /
-               (3.3f - voutLdr); // 10k pull-up resistor
-  g_lightLux = 500000.0f /
-               rLdr; // Lux approximation (logarithmic curve based)
+  float rLdr = (10000.0f * voutLdr) / (3.3f - voutLdr); // 10k pull-up resistor
+  g_lightLux = 500000.0f / rLdr; // Lux approximation (logarithmic curve based)
 
   // NTC Calculations (tuned for 100k thermistor)
   uint8_t tmpNTC = (rawNTC == 0) ? 1 : ((rawNTC >= 255) ? 254 : rawNTC);
@@ -310,33 +320,56 @@ void updateDisplay() {
     }
 
   } else if (g_displayPage == 2) {
-    drawHeader("SYSTEM STATS");
+    // 1. Header (High-contrast with subtle heartbeat)
+    display.fillRect(0, 0, 128, 12, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK);
+    display.setCursor(18, 2);
+    display.print("REAL-TIME LOGS");
+    
+    // WiFi Signal Icon on the right of the header
+    if (WiFi.status() == WL_CONNECTED) {
+        int rssi = WiFi.RSSI();
+        int bars = map(constrain(rssi, -100, -50), -100, -50, 1, 4);
+        for (int i = 0; i < 4; i++) {
+            uint8_t h = 2 + (i * 2);
+            if (i < bars) 
+              display.fillRect(115 + (i * 3), 9 - h, 2, h, SSD1306_BLACK);
+            else 
+              display.drawPixel(115 + (i * 3), 9, SSD1306_BLACK); // Base dot for empty bars
+        }
+    } else {
+        display.setCursor(118, 2);
+        display.print("x");
+    }
+
+    display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
-    display.setCursor(5, 22);
-    display.print("Time: ");
+
+    // 2. Timestamp
+    display.setCursor(0, 16);
+    display.print("TIME:  "); 
     display.print(g_timestamp);
-    display.setCursor(5, 38);
-    display.print("CPU Load:");
 
-    display.drawRect(65, 38, 55, 9, SSD1306_WHITE);
-    uint8_t barW = map((int)g_cpuLoad, 0, 100, 0, 51);
-    display.fillRect(67, 40, barW, 5, SSD1306_WHITE);
+    // 3. Raw I/O Data (Fixed horizontal fit)
+    display.setCursor(0, 26);
+    display.printf("RAW: A0:%03d  A1:%03d", g_rawAIN0, g_rawAIN1); 
+    display.setCursor(0, 35);
+    display.printf("     A2:%03d  A3:%03d", g_rawAIN2, g_rawAIN3); 
 
-    display.setCursor(5, 52);
-    display.print(g_cpuLoad, 1);
-    display.print(" %");
+    // 4. Separator
+    display.drawLine(0, 46, 127, 46, SSD1306_WHITE);
+
+    // 5. Processed Data
+    display.setCursor(0, 50);
+    display.printf("TMP:%2.1fC | LUM:%dlx", g_temperature, (int)g_lightLux);
   } else if (g_displayPage == 3) {
     drawHeader("WIFI NETWORK");
     display.setTextSize(1);
     display.setCursor(4, 20);
 
     if (WiFi.status() == WL_CONNECTED) {
-      display.print("SSID:");
-      String ssid = WiFi.SSID();
-      if (ssid.length() > 14) {
-        ssid = ssid.substring(0, 11) + "...";
-      }
-      display.println(ssid);
+      display.print("SSID: ");
+      display.println(WiFi.SSID());
 
       display.setCursor(4, 32);
       display.print("IP:  ");
@@ -366,12 +399,13 @@ void updateDisplay() {
     }
   }
 
-  // Draw page navigation indicators (centered, 4 pages)
+  // Draw page navigation indicators (centered, MAX_PAGES pages)
+  int startX = 64 - (MAX_PAGES * 10) / 2 + 5;
   for (uint8_t i = 0; i < MAX_PAGES; i++) {
     if (i == g_displayPage)
-      display.fillCircle(49 + (i * 10), 61, 2, SSD1306_WHITE);
+      display.fillCircle(startX + (i * 10), 61, 2, SSD1306_WHITE);
     else
-      display.drawCircle(49 + (i * 10), 61, 2, SSD1306_WHITE);
+      display.drawCircle(startX + (i * 10), 61, 2, SSD1306_WHITE);
   }
   display.display();
 }
@@ -385,11 +419,15 @@ void pollButtons() {
   g_btn1State = (btn1 == LOW);
   g_btn2State = (btn2 == LOW);
 
-  if (btn1 == LOW && lastBtn1 == HIGH)
+  if (btn1 == LOW && lastBtn1 == HIGH) {
     g_displayPage = (g_displayPage + 1) % MAX_PAGES;
-  if (btn2 == LOW && lastBtn2 == HIGH)
+    addLog("Page Next: " + String(g_displayPage));
+  }
+  if (btn2 == LOW && lastBtn2 == HIGH) {
     g_displayPage =
         (g_displayPage == 0) ? (MAX_PAGES - 1) : (g_displayPage - 1);
+    addLog("Page Prev: " + String(g_displayPage));
+  }
   lastBtn1 = btn1;
   lastBtn2 = btn2;
 }
@@ -404,11 +442,11 @@ void reconnectMQTT() {
   lastMqttAttempt = millis();
 
   if (!mqttClient.connected()) {
-    Serial.print(F("Attempting MQTT connection..."));
+    addLog("Attempting MQTT connection...");
     String clientId = "ESP32Client-";
     clientId += String(random(0xffff), HEX);
     if (mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
-      Serial.println(F("connected"));
+      addLog("connected");
     } else {
       Serial.print(F("failed, rc="));
       Serial.print(mqttClient.state());
@@ -458,7 +496,7 @@ String getTelemetryJSON() {
   json += "\"current_total\":" + String(g_totalMah, 2) + ",";
   json += "\"battery_life\":\"" + batLifeStr + "\"";
   json += "}";
-  
+
   return json;
 }
 
@@ -467,7 +505,15 @@ void publishMQTT() {
     return;
 
   String json = getTelemetryJSON();
-  mqttClient.publish("hs2026/telemetry", json.c_str());
+  if (mqttClient.publish("hs2026/telemetry", json.c_str())) {
+    char buf[48];
+    // Log as: IO BTNS A0 A1 A2 A3
+    snprintf(buf, sizeof(buf), "IO %d%d %03d %03d %03d %03d", g_btn1State,
+             g_btn2State, g_rawAIN0, g_rawAIN1, g_rawAIN2, g_rawAIN3);
+    addLog(buf);
+  } else {
+    addLog("MQTT ERR");
+  }
 }
 
 void handleGetInfo() {
@@ -479,7 +525,8 @@ void handleGetInfo() {
 void handleWifiStatus() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
   String json = "{";
-  json += "\"connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+  json += "\"connected\":" +
+          String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
   json += "\"ssid\":\"" + WiFi.SSID() + "\",";
   json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"rssi\":" + String(WiFi.RSSI());
@@ -489,10 +536,12 @@ void handleWifiStatus() {
 
 void handleResetWiFi() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "text/plain", "Resetting WiFi credentials. ESP will restart and open config portal (AP: HS_Sensor_Setup / 12345678).");
+  server.send(200, "text/plain",
+              "Resetting WiFi credentials. ESP will restart and open config "
+              "portal (AP: HS_Sensor_Setup / 12345678).");
   delay(500);
   WiFiManager wm;
-  wm.resetSettings();  // Sterge SSID/parola salvate din NVS
+  wm.resetSettings(); // Sterge SSID/parola salvate din NVS
   ESP.restart();
 }
 
@@ -569,6 +618,86 @@ setInterval(loadStatus,5000);
   server.send(200, "text/html", html);
 }
 
+void handleGetLogs() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.send(200, "text/plain", g_logBuffer);
+}
+
+void handleLogsPage() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  String html = R"rawhtml(
+<!DOCTYPE html><html lang='en'><head>
+<meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>System Logs - HS Sensor</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:#030712;color:#94a3b8;min-height:100vh;display:flex;flex-direction:column;padding:24px}
+  .container{max-width:900px;margin:0 auto;width:100%;flex:1;display:flex;flex-direction:column}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;background:#111827;padding:16px 24px;border-radius:12px;border:1px solid #1f2937;box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}
+  h1{font-size:1.25rem;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:8px}
+  .status{font-size:.75rem;padding:4px 10px;border-radius:999px;background:#064e3b;color:#34d399;font-weight:600}
+  .log-box{background:#000;border:1px solid #1f2937;border-radius:12px;padding:16px;font-family:'Fira Code','Consolas',monospace;font-size:.85rem;line-height:1.6;color:#10b981;overflow-y:auto;flex:1;box-shadow:inset 0 2px 4px rgba(0,0,0,.5);white-space:pre-wrap;margin-bottom:16px;min-height:400px}
+  .controls{display:flex;gap:12px;margin-top:auto}
+  .btn{padding:10px 18px;border-radius:8px;font-size?.9rem;font-weight:600;cursor:pointer;transition:all .2s;border:1px solid transparent;display:flex;align-items:center;gap:6px}
+  .btn-primary{background:#2563eb;color:#fff}
+  .btn-primary:hover{background:#1d4ed8;transform:translateY(-1px)}
+  .btn-outline{background:transparent;border-color:#334155;color:#f1f5f9}
+  .btn-outline:hover{background:#1e293b;border-color:#475569}
+  .footer{margin-top:16px;display:flex;justify-content:space-between;font-size:.75rem;color:#4b5563}
+  ::-webkit-scrollbar{width:8px}
+  ::-webkit-scrollbar-track{background:#111827}
+  ::-webkit-scrollbar-thumb{background:#374151;border-radius:4px}
+  ::-webkit-scrollbar-thumb:hover{background:#4b5563}
+</style>
+</head><body>
+<div class='container'>
+  <header>
+    <h1><span>&#128196;</span> System Logs</h1>
+    <div id='status' class='status'>Live</div>
+  </header>
+  <div id='log-content' class='log-box'>Loading logs...</div>
+  <div class='controls'>
+    <button class='btn btn-primary' onclick='refresh()'>Refresh Now</button>
+    <button class='btn btn-outline' onclick='clearLogs()'>Clear View</button>
+    <a href='/wifi' style='text-decoration:none' class='btn btn-outline'>WiFi Settings</a>
+    <a href='/get_info' style='text-decoration:none' class='btn btn-outline'>Telemetry API</a>
+  </div>
+  <div class='footer'>
+    <span>ESP32-C3 Sensor Node</span>
+    <span id='last-update'>Last update: -</span>
+  </div>
+</div>
+<script>
+async function refresh(){
+  const s=document.getElementById('status');
+  const lc=document.getElementById('log-content');
+  const lu=document.getElementById('last-update');
+  s.textContent='Updating...';
+  try{
+    const r=await fetch('/api/logs');
+    const t=await r.text();
+    lc.textContent=t||'No logs available.';
+    lc.scrollTop=lc.scrollHeight;
+    lu.textContent='Last update: '+new Date().toLocaleTimeString();
+    s.textContent='Live';
+    s.style.background='#064e3b';
+  }catch(e){
+    s.textContent='Error';
+    s.style.background='#450a0a';
+    console.error(e);
+  }
+}
+function clearLogs(){
+  document.getElementById('log-content').textContent='';
+}
+refresh();
+setInterval(refresh,3000);
+</script>
+</body></html>
+)rawhtml";
+  server.send(200, "text/html", html);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -591,13 +720,15 @@ void setup() {
 
   if (!ina219.begin())
     Serial.println(F("INA219 error!"));
-
   if (!rtc.begin()) {
-    Serial.println(F("RTC error!"));
+    addLog("RTC error!");
   } else {
     // Sync hardware clock with compilation time.
-    // Comment this out after the first upload to prevent resetting the time.
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    DateTime now = rtc.now();
+    snprintf(g_timestamp, sizeof(g_timestamp), "%02d:%02d:%02d", now.hour(),
+             now.minute(), now.second());
+    addLog("RTC synced: " + String(g_timestamp));
   }
 
   // --- WiFiManager Setup ---
@@ -637,34 +768,34 @@ void setup() {
   // Optional: Set timeout so it doesn't block forever if user doesn't setup
   wm.setConfigPortalTimeout(180); // 3 minutes timeout
 
-  // Use WPA2 password to prevent phones from rejecting an Open AP without internet
+  // Use WPA2 password to prevent phones from rejecting an Open AP without
+  // internet
   if (!wm.autoConnect("HS_Sensor_Setup", "12345678")) {
     Serial.println(F("Failed to connect and hit timeout"));
     delay(3000);
   } else {
-    Serial.println(F("WiFi connected!"));
+    addLog("WiFi connected!");
   }
   // -------------------------
+  addLog("WiFi Setup complete");
 
-<<<<<<< HEAD
-  espClient.setInsecure(); // Fara verificare certificat pentru eficienta /
-                           // compatibilitate
-=======
-  server.on("/", handleRoot);
-  server.on("/api/data", handleApiData);
-  server.begin();
+  server.on("/", HTTP_GET, []() {
+    server.sendHeader("Location", "/logs");
+    server.send(302, "text/plain", "Redirecting to logs...");
+  });
 
-  espClient.setInsecure(); // No certificate verification for compatibility
->>>>>>> 8c5b45a41c81da6f4b9771ee10061934cac15906
+  espClient.setInsecure(); // Fara verificare certificat pentru eficienta
   mqttClient.setServer(mqtt_server, mqtt_port);
-  mqttClient.setBufferSize(512); // Extended buffer for large JSON payloads
+  mqttClient.setBufferSize(512);
 
   server.on("/get_info", HTTP_GET, handleGetInfo);
   server.on("/wifi_status", HTTP_GET, handleWifiStatus);
   server.on("/reset_wifi", HTTP_GET, handleResetWiFi);
   server.on("/wifi", HTTP_GET, handleWifiPage);
+  server.on("/logs", HTTP_GET, handleLogsPage);
+  server.on("/api/logs", HTTP_GET, handleGetLogs);
   server.begin();
-  Serial.println(F("HTTP server started"));
+  addLog("HTTP server started");
 
   delay(1500);
 }
