@@ -14,5 +14,6 @@ data class EspData(
     @SerializedName("current_now") val currentNow: Float,
     @SerializedName("current_total") val currentTotal: Float,
     @SerializedName("battery_life") val batteryLife: String,
-    @SerializedName("gpio_pin") val gpioPin: String
+    @SerializedName("gpio_pin") val gpioPin: String,
+    @SerializedName("battery_percentage") val batteryPercentage: Int
 )

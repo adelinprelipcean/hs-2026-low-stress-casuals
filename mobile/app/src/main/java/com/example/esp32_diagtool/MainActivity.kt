@@ -4,6 +4,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Spannable
 import android.text.SpannableStringBuilder
 import android.view.Menu
@@ -27,6 +29,8 @@ import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
 import java.util.Locale
+import androidx.core.graphics.toColorInt
+import androidx.core.view.isVisible
 
 class MainActivity : AppCompatActivity() {
 
@@ -35,8 +39,12 @@ class MainActivity : AppCompatActivity() {
     private val viewModel: MainViewModel by viewModels()
     private lateinit var mqttManager: MqttManager
 
-    private var startTime = System.currentTimeMillis()
-    private val themePurple = Color.parseColor("#D0BCFF")
+    private val themePurple = "#D0BCFF".toColorInt()
+    
+    private val offlineHandler = Handler(Looper.getMainLooper())
+    private val offlineRunnable = Runnable {
+        showOfflineState()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,11 +56,15 @@ class MainActivity : AppCompatActivity() {
 
         setupCharts()
         setupListeners()
+        
+        // Populate existing data if we are recovering from a config change
+        populateExistingData()
+        
         startMqtt()
         
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (binding.fragmentContainer.visibility == View.VISIBLE) {
+                if (binding.fragmentContainer.isVisible) {
                     hideLogFragment()
                 } else {
                     isEnabled = false
@@ -66,15 +78,72 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun populateExistingData() {
+        val history = viewModel.logHistory.value ?: return
+        if (history.isEmpty()) {
+            showInitialState()
+            return
+        }
+        
+        val startTime = viewModel.startTime
+        if (startTime == -1L) return
+
+        showDataState()
+
+        history.forEach { point ->
+            val time = (point.receivedAt - startTime) / 1000f
+            val data = point.data
+            
+            // We don't need to update all UI here, just the charts
+            val displayTemp = if (preferenceManager.isFahrenheit) {
+                (data.temperature * 9/5) + 32
+            } else {
+                data.temperature
+            }
+            
+            addEntry(binding.chartTemperature, time, displayTemp)
+            addEntry(binding.chartLight, time, data.lightIntensity)
+            addEntry(binding.chartVoltage, time, data.voltage)
+            addEntry(binding.chartCurrent, time, data.currentNow)
+        }
+        
+        // Update the textual UI with the latest data
+        history.lastOrNull()?.let { updateTextualUI(it.data) }
+        
+        resetOfflineTimer()
+    }
+
+    private fun showInitialState() {
+        binding.tvEmptyMessage.text = getString(R.string.msg_waiting_device)
+        binding.tvEmptyMessage.visibility = View.VISIBLE
+        binding.nestedScrollView.visibility = View.GONE
+    }
+
+    private fun showDataState() {
+        binding.tvEmptyMessage.visibility = View.GONE
+        binding.nestedScrollView.visibility = View.VISIBLE
+    }
+
+    private fun showOfflineState() {
+        binding.tvEmptyMessage.text = getString(R.string.msg_device_offline)
+        binding.tvEmptyMessage.visibility = View.VISIBLE
+        binding.nestedScrollView.visibility = View.GONE
+    }
+
+    private fun resetOfflineTimer() {
+        offlineHandler.removeCallbacks(offlineRunnable)
+        offlineHandler.postDelayed(offlineRunnable, 10000)
+    }
+
     private fun updateToolbar() {
-        val isLogVisible = binding.fragmentContainer.visibility == View.VISIBLE
+        val isLogVisible = binding.fragmentContainer.isVisible
         supportActionBar?.setDisplayHomeAsUpEnabled(isLogVisible)
         supportActionBar?.title = if (isLogVisible) getString(R.string.log_history) else getString(R.string.app_name)
         invalidateOptionsMenu()
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        if (binding.fragmentContainer.visibility == View.VISIBLE) {
+        if (binding.fragmentContainer.isVisible) {
             hideLogFragment()
             return true
         }
@@ -82,11 +151,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        binding.btnRetry.setOnClickListener {
-            binding.errorView.visibility = View.GONE
-            startMqtt()
-        }
-
         binding.cardLog.setOnClickListener {
             showLogFragment()
         }
@@ -98,6 +162,7 @@ class MainActivity : AppCompatActivity() {
             .addToBackStack(null)
             .commit()
         binding.nestedScrollView.visibility = View.GONE
+        binding.tvEmptyMessage.visibility = View.GONE
         binding.fragmentContainer.visibility = View.VISIBLE
         updateToolbar()
     }
@@ -105,7 +170,12 @@ class MainActivity : AppCompatActivity() {
     private fun hideLogFragment() {
         supportFragmentManager.popBackStack()
         binding.fragmentContainer.visibility = View.GONE
-        binding.nestedScrollView.visibility = View.VISIBLE
+        // Restore previous state
+        if (viewModel.logHistory.value.isNullOrEmpty()) {
+            showInitialState()
+        } else {
+            showDataState()
+        }
         updateToolbar()
     }
 
@@ -150,7 +220,7 @@ class MainActivity : AppCompatActivity() {
             lineWidth = 2.5f
             setDrawValues(false)
             setDrawCircles(false)
-            mode = LineDataSet.Mode.CUBIC_BEZIER
+            mode = LineDataSet.Mode.LINEAR
             setDrawFilled(true)
             
             val gradientDrawable = GradientDrawable(
@@ -181,15 +251,14 @@ class MainActivity : AppCompatActivity() {
         mqttManager = MqttManager(
             onDataReceived = { data ->
                 runOnUiThread {
+                    showDataState()
                     updateUI(data)
                     viewModel.updateData(data)
-                    binding.errorView.visibility = View.GONE
+                    resetOfflineTimer()
                 }
             },
-            onConnectionChanged = { connected ->
-                runOnUiThread {
-                    binding.errorView.visibility = if (connected) View.GONE else View.VISIBLE
-                }
+            onConnectionChanged = { _ ->
+                // Scraping old error view logic
             }
         )
         Thread { mqttManager.connect() }.start()
@@ -197,11 +266,49 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Thread { mqttManager.disconnect() }.start()
+        offlineHandler.removeCallbacks(offlineRunnable)
+        if (::mqttManager.isInitialized) {
+            Thread { mqttManager.disconnect() }.start()
+        }
     }
 
     private fun updateUI(data: EspData) {
-        val time = (System.currentTimeMillis() - startTime) / 1000f
+        val now = System.currentTimeMillis()
+        if (viewModel.startTime == -1L) {
+            viewModel.startTime = now
+        }
+        val time = (now - viewModel.startTime) / 1000f
+
+        updateTextualUI(data)
+
+        // Temperature Graph
+        val displayTemp = if (preferenceManager.isFahrenheit) {
+            (data.temperature * 9/5) + 32
+        } else {
+            data.temperature
+        }
+        addEntry(binding.chartTemperature, time, displayTemp)
+
+        // Light Graph
+        addEntry(binding.chartLight, time, data.lightIntensity)
+
+        // Voltage & Current Graphs
+        addEntry(binding.chartVoltage, time, data.voltage)
+        addEntry(binding.chartCurrent, time, data.currentNow)
+    }
+
+    private fun updateTextualUI(data: EspData) {
+        // Battery Card
+        binding.tvBatteryValue.text = getString(R.string.battery_percentage_format, data.batteryPercentage)
+        if (data.batteryLife == "N/A") {
+            binding.ivBatteryIcon.setImageResource(android.R.drawable.ic_lock_idle_charging)
+            binding.tvBatteryStatus.text = getString(R.string.status_plugged_in)
+            binding.tvBatteryLife.text = getString(R.string.status_plugged_in)
+        } else {
+            binding.ivBatteryIcon.setImageResource(android.R.drawable.ic_lock_idle_low_battery)
+            binding.tvBatteryStatus.text = getString(R.string.label_battery)
+            binding.tvBatteryLife.text = data.batteryLife
+        }
         
         // Temperature
         val displayTemp = if (preferenceManager.isFahrenheit) {
@@ -211,22 +318,17 @@ class MainActivity : AppCompatActivity() {
         }
         val unit = if (preferenceManager.isFahrenheit) "°F" else "°C"
         binding.tvTemperature.text = TextFormatter.formatFloat(displayTemp, 1, unit)
-        addEntry(binding.chartTemperature, time, displayTemp)
 
         // Light
         binding.tvLight.text = TextFormatter.formatFloat(data.lightIntensity, 1, "Lux")
-        addEntry(binding.chartLight, time, data.lightIntensity)
 
         // CPU (Circular)
         binding.tvCpuLoad.text = TextFormatter.formatFloat(data.cpuLoad, 1, "%")
         binding.progressCpu.progress = data.cpuLoad.toInt()
 
-        // Voltage & Current (Graphs)
+        // Voltage & Current
         binding.tvVoltage.text = TextFormatter.formatFloat(data.voltage, 2, "V")
-        addEntry(binding.chartVoltage, time, data.voltage)
-        
         binding.tvCurrentNow.text = TextFormatter.formatFloat(data.currentNow, 2, "mA")
-        addEntry(binding.chartCurrent, time, data.currentNow)
 
         // WiFi (Circular RSSI)
         binding.tvNetwork.text = data.networkName
@@ -235,6 +337,10 @@ class MainActivity : AppCompatActivity() {
         binding.progressRssi.progress = rssiPercent
 
         // Log with Flares
+        updateLogView(data)
+    }
+
+    private fun updateLogView(data: EspData) {
         val timestamp = "${data.timestamp}"
         val gpio = "${data.gpioPin} "
         val message = "  ${data.ioLog}\n"
@@ -292,6 +398,13 @@ class MainActivity : AppCompatActivity() {
                 set = LineDataSet(mutableListOf(), "Data")
                 data.addDataSet(set)
             }
+            
+            // Avoid adding duplicate or older entries to the chart to prevent "weird forms"
+            val lastEntry = set.values.lastOrNull()
+            if (lastEntry != null && lastEntry.x >= x) {
+                return 
+            }
+
             data.addEntry(Entry(x, y), 0)
             data.notifyDataChanged()
             chart.notifyDataSetChanged()

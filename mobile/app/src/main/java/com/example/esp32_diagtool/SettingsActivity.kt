@@ -16,20 +16,12 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         preferenceManager = PreferenceManager(this)
-
-        binding.etServerUrl.setText(preferenceManager.serverUrl)
         binding.switchUnit.isChecked = preferenceManager.isFahrenheit
 
         binding.btnSave.setOnClickListener {
-            val url = binding.etServerUrl.text.toString()
-            if (url.isNotEmpty()) {
-                preferenceManager.serverUrl = url
-                preferenceManager.isFahrenheit = binding.switchUnit.isChecked
-                Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
-                finish()
-            } else {
-                Toast.makeText(this, "Please enter a valid URL", Toast.LENGTH_SHORT).show()
-            }
+            preferenceManager.isFahrenheit = binding.switchUnit.isChecked
+            Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
+            finish()
         }
     }
 }
