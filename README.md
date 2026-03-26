@@ -29,10 +29,5 @@ Acest proiect reprezintă soluția pentru Task 1 din cadrul preselecțiilor Hard
 - **Multi-platform Display:** Date afișate numeric și grafic pe Web, Mobile și Display local.
 - **System Health:** Monitorizare CPU-load și nivel semnal RSSI.
 
-### 💻 Instalare și Rulare
-1. **Firmware:** Deschide folderul `/firmware` în VS Code cu extensia PlatformIO și apasă `Upload`.
-2. **Web:** `cd web-dashboard && npm install && npm start`.
-3. **Mobile:** (Instrucțiuni specifice pentru framework-ul ales).
-
 ### 📖 Documentație
 Raportul tehnic detaliat, inclusiv elementele de calcul pentru CPU-load și durata bateriei, se găsește în folderul `/docs`.
