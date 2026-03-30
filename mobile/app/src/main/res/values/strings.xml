@@ -26,7 +26,7 @@
 
     <string name="label_battery">BATTERY</string>
     <string name="status_plugged_in">Plugged in</string>
-    <string name="battery_percentage_format">%d%%</string>
+    <string name="battery_percentage_format">%.2f%%</string>
 
     <string name="msg_waiting_device">When the device sends data it\'ll appear here</string>
     <string name="msg_device_offline">The device appears to be offline.</string>

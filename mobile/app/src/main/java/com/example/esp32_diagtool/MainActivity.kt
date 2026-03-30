@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.Spannable
 import android.text.SpannableStringBuilder
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -40,7 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mqttManager: MqttManager
 
     private val themePurple = "#D0BCFF".toColorInt()
-    
+
     private val offlineHandler = Handler(Looper.getMainLooper())
     private val offlineRunnable = Runnable {
         showOfflineState()
@@ -56,12 +57,12 @@ class MainActivity : AppCompatActivity() {
 
         setupCharts()
         setupListeners()
-        
+
         // Populate existing data if we are recovering from a config change
         populateExistingData()
-        
-        startMqtt()
-        
+
+        initMqtt()
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (binding.fragmentContainer.isVisible) {
@@ -78,13 +79,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Ensure we are connected when the app comes to foreground
+        if (::mqttManager.isInitialized) {
+            Thread {
+                Log.d("MainActivity", "Triggering MQTT connect from onStart")
+                mqttManager.connect()
+            }.start()
+        }
+    }
+
     private fun populateExistingData() {
         val history = viewModel.logHistory.value ?: return
         if (history.isEmpty()) {
             showInitialState()
             return
         }
-        
+
         val startTime = viewModel.startTime
         if (startTime == -1L) return
 
@@ -93,23 +105,23 @@ class MainActivity : AppCompatActivity() {
         history.forEach { point ->
             val time = (point.receivedAt - startTime) / 1000f
             val data = point.data
-            
+
             // We don't need to update all UI here, just the charts
             val displayTemp = if (preferenceManager.isFahrenheit) {
                 (data.temperature * 9/5) + 32
             } else {
                 data.temperature
             }
-            
+
             addEntry(binding.chartTemperature, time, displayTemp)
             addEntry(binding.chartLight, time, data.lightIntensity)
             addEntry(binding.chartVoltage, time, data.voltage)
             addEntry(binding.chartCurrent, time, data.currentNow)
         }
-        
+
         // Update the textual UI with the latest data
         history.lastOrNull()?.let { updateTextualUI(it.data) }
-        
+
         resetOfflineTimer()
     }
 
@@ -222,7 +234,7 @@ class MainActivity : AppCompatActivity() {
             setDrawCircles(false)
             mode = LineDataSet.Mode.LINEAR
             setDrawFilled(true)
-            
+
             val gradientDrawable = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(
@@ -235,7 +247,7 @@ class MainActivity : AppCompatActivity() {
             setDrawVerticalHighlightIndicator(true)
             highLightColor = Color.WHITE
         }
-        
+
         chart.data = LineData(dataSet)
     }
 
@@ -247,7 +259,7 @@ class MainActivity : AppCompatActivity() {
         return Color.argb(alpha, red, green, blue)
     }
 
-    private fun startMqtt() {
+    private fun initMqtt() {
         mqttManager = MqttManager(
             onDataReceived = { data ->
                 runOnUiThread {
@@ -257,11 +269,10 @@ class MainActivity : AppCompatActivity() {
                     resetOfflineTimer()
                 }
             },
-            onConnectionChanged = { _ ->
-                // Scraping old error view logic
+            onConnectionChanged = { connected ->
+                Log.d("MainActivity", "MQTT Connection status: $connected")
             }
         )
-        Thread { mqttManager.connect() }.start()
     }
 
     override fun onDestroy() {
@@ -361,7 +372,7 @@ class MainActivity : AppCompatActivity() {
             builder.length,
             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
         )
-        
+
         builder.append(" ")
 
         // GPIO Flare
@@ -380,12 +391,12 @@ class MainActivity : AppCompatActivity() {
         )
 
         builder.append(message)
-        
+
         val currentLog = binding.tvLog.text
         if (currentLog.toString() != getString(R.string.waiting_data)) {
             builder.append(currentLog)
         }
-        
+
         val finalContent = if (builder.length > 2000) builder.subSequence(0, 2000) else builder
         binding.tvLog.setText(finalContent, TextView.BufferType.SPANNABLE)
     }
@@ -398,11 +409,11 @@ class MainActivity : AppCompatActivity() {
                 set = LineDataSet(mutableListOf(), "Data")
                 data.addDataSet(set)
             }
-            
+
             // Avoid adding duplicate or older entries to the chart to prevent "weird forms"
             val lastEntry = set.values.lastOrNull()
             if (lastEntry != null && lastEntry.x >= x) {
-                return 
+                return
             }
 
             data.addEntry(Entry(x, y), 0)
