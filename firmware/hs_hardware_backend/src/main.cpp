@@ -10,12 +10,15 @@
 #include <WiFiClientSecure.h>
 #include <WiFiManager.h>
 #include <Wire.h>
+#include <DFRobot_BMI160.h>
 
 
 extern "C" {
 #include "esp_freertos_hooks.h"
 }
 #include <esp_wifi.h>
+#include <algorithm>
+#include <vector>
 
 // ---------------------------------------------------------
 // Configuration
@@ -24,6 +27,7 @@ extern "C" {
 #define I2C_SCL_PIN 6
 #define BTN1_PIN 2
 #define BTN2_PIN 3
+#define TEMP_ADC_PIN 1
 
 // ---------------------------------------------------------
 // Peripheral Objects
@@ -33,6 +37,7 @@ extern "C" {
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_INA219 ina219;
 RTC_DS3231 rtc;
+DFRobot_BMI160* bmi160 = nullptr;
 
 const char *mqtt_server = MQTT_SERVER;
 const int mqtt_port = MQTT_PORT;
@@ -46,10 +51,9 @@ WebServer server(80);
 #define PCF8591_ADDR 0x48
 
 // ---------------------------------------------------------
-// Hardware Calibration
 // Temperature offset to compensate for component tolerances
-// ---------------------------------------------------------
-#define TEMP_CALIBRATION_OFFSET -1.2f
+// Starting clean (0.0) after standardizing NTC parameters
+#define TEMP_CALIBRATION_OFFSET 0.0f
 
 // ---------------------------------------------------------
 // Telemetry State
@@ -65,7 +69,12 @@ bool g_isBatteryCritical = false;
 float g_cpuLoad = 0;
 char g_timestamp[32] = "--:--:--";
 uint8_t g_displayPage = 0;
-#define MAX_PAGES 5
+#define MAX_PAGES 6
+
+// IMU State
+bool g_bmi160Connected = false;
+float g_accelX = 0, g_accelY = 0, g_accelZ = 0;
+float g_gyroX = 0, g_gyroY = 0, g_gyroZ = 0;
 
 // Raw pin status
 uint8_t g_rawAIN0 = 0;
@@ -121,33 +130,26 @@ uint8_t readPCF8591(uint8_t channel) {
   return 255;
 }
 
-float calculateTemperature(uint8_t rawNTC) {
-  if (rawNTC == 255 || rawNTC == 0) return -99.0f;
-  uint8_t tmpNTC = (rawNTC >= 255) ? 254 : rawNTC;
-  
-  // Divider resistor (SMD) is 10k
-  float ratio = (float)tmpNTC / (255.0f - (float)tmpNTC);
-  float resistance = 10000.0f * ratio;
-
-  // R_0 factor at 25C is 100k, Beta is 3950
-  float steinhart = logf(resistance / 100000.0f) / 3950.0f + 1.0f / (25.0f + 273.15f);
-  steinhart = 1.0f / steinhart - 273.15f; // Raw Celsius
-  
-  steinhart += TEMP_CALIBRATION_OFFSET;
-  return (steinhart < -40.0f || steinhart > 125.0f) ? -99.0f : steinhart;
+// Helper function for Steinhart math
+float ntcMath(float resistance) {
+  if (resistance < 10.0f || resistance > 1000000.0f) return -99.0f;
+  // Standard 10k NTC (R0=10000, B=3950, T0=25C)
+  float steinhart = logf(resistance / 10000.0f) / 3950.0f + 1.0f / (25.0f + 273.15f);
+  return 1.0f / steinhart - 273.15f;
 }
 
-float calculateLux(uint8_t rawLDR) {
-  uint8_t safeRawLDR = (rawLDR == 0) ? 1 : ((rawLDR >= 255) ? 254 : rawLDR);
-  float voutLdr = safeRawLDR * (3.3f / 255.0f);
-  // Divider formula: rLdr is between 3.3V and signal, 10k is between signal and GND
-  float rLdr = (10000.0f * voutLdr) / (3.3f - voutLdr);
-  if (rLdr < 1.0f) rLdr = 1.0f;
-
-  // Calibrated constant: 10,000,000 matches typical 150-200 Lux in lit rooms
-  float lux = 10000000.0f / rLdr;
-  return constrain(lux, 0.0f, 60000.0f);
+float calculateTemperature(uint16_t adcRaw) {
+  if (adcRaw <= 5 || adcRaw >= 4090) return -99.0f;
+  
+  // Using Option A (3.3V --- NTC --- GPIO1 --- 10k --- GND)
+  // V_out = 3.3 * (10000 / (R_ntc + 10000))
+  // R_ntc = 10000 * (4095 / adcRaw - 1)
+  float resA = (10000.0f * (4095.0f - (float)adcRaw)) / (float)adcRaw;
+  
+  return ntcMath(resA);
 }
+
+// calculateLux removed (LDR disconnected)
 
 // ---------------------------------------------------------
 // Sensor Read (called 1Hz)
@@ -163,58 +165,38 @@ void readSensors() {
   float load = (maxIdleCount > 0)
                    ? 100.0f * (1.0f - ((float)curIdle / maxIdleCount))
                    : 0.0f;
-  g_cpuLoad = constrain(load, 0.0f, 100.0f);
-
-  // --- PCF8591 ---
-  delay(10);
   
-  // Lux Oversampling & Smoothing
-  float luxSum = 0;
-  uint16_t rawLdrSum = 0;
-  for (int i = 0; i < 8; i++) {
-    uint8_t r = readPCF8591(0); // AIN0: LDR
-    luxSum += calculateLux(r);
-    rawLdrSum += r;
-    delay(2);
-  }
-  g_rawAIN0 = rawLdrSum / 8;
-  float instantLux = luxSum / 8.0f;
-  // EMA Filter for Lux
-  if (g_lightLux <= 0) g_lightLux = instantLux;
-  else g_lightLux = (g_lightLux * 0.8f) + (instantLux * 0.2f);
+  // Smooth EMA (Alpha = 0.2) to prevent jitter in CPU load display
+  g_cpuLoad = (g_cpuLoad * 0.8f) + (constrain(load, 0.0f, 100.0f) * 0.2f);
 
-  delay(5);
-
-  // Temperature Oversampling & Smoothing
-  float tempSum = 0;
-  uint16_t rawSum = 0;
-  uint8_t validSamples = 0;
-  for (int i = 0; i < 8; i++) {
-    uint8_t r = readPCF8591(1);
-    float t = calculateTemperature(r);
-    if (t > -90.0f) {
-      tempSum += t;
-      rawSum += r;
-      validSamples++;
-    }
-    delay(2);
+  // --- INTERNAL ADC (NTC) ---
+  uint16_t samples[101];
+  for(int i=0; i<100; i++) {
+    samples[i] = analogRead(TEMP_ADC_PIN);
+    if(i % 25 == 0) delay(1);
   }
+  std::sort(samples, samples + 100);
+  g_rawAIN1 = samples[50];
   
-  if (validSamples > 0) {
-    g_rawAIN1 = rawSum / validSamples;
-    float instantTemp = tempSum / validSamples;
-    // EMA Filter: alpha = 0.2 (low pass)
-    if (g_temperature < -90.0f) g_temperature = instantTemp;
-    else g_temperature = (g_temperature * 0.8f) + (instantTemp * 0.2f);
+  float instantTemp = calculateTemperature(g_rawAIN1);
+
+  if (millis() % 5000 < 500) {
+    // Calculating raw resistance for debug
+    float resDebug = (10000.0f * (4095.0f - (float)g_rawAIN1)) / (float)g_rawAIN1;
+    Serial.printf("[TMP] ADC:%d | Res:%.0f | Result:%.1f C\n", g_rawAIN1, resDebug, instantTemp);
+  }
+
+  // Fast Startup & Smooth EMA (Alpha = 0.04)
+  if (g_temperature < -90.0f || g_temperature == 0.0f) {
+      if (instantTemp > -90.0f) g_temperature = instantTemp + TEMP_CALIBRATION_OFFSET;
   } else {
-    g_rawAIN1 = 255;
-    g_temperature = -99.0f;
+      if (instantTemp > -90.0f) {
+          float calibrated = instantTemp + TEMP_CALIBRATION_OFFSET;
+          g_temperature = (g_temperature * 0.96f) + (calibrated * 0.04f);
+      }
   }
 
-  g_rawAIN2 = readPCF8591(2);
-  delay(2);
-  g_rawAIN3 = readPCF8591(3);
-  delay(2);
+  g_lightLux = 0;
 
   // --- INA219 ---
   delay(5);
@@ -240,6 +222,23 @@ void readSensors() {
   DateTime now = rtc.now();
   snprintf(g_timestamp, sizeof(g_timestamp), "%02d:%02d:%02d", now.hour(),
            now.minute(), now.second());
+
+  // --- BMI160 ---
+  if (g_bmi160Connected && bmi160 != nullptr) {
+    int16_t accelGyro[6]; // [0..2] = gyro, [3..5] = accel
+    int8_t rslt = bmi160->getSensorData(bmi160->bothAccelGyro, accelGyro);
+    if (rslt == 0) {
+      // 16.4 is for +/- 2000 deg/s
+      g_gyroX = (float)accelGyro[0] / 16.4f;
+      g_gyroY = (float)accelGyro[1] / 16.4f;
+      g_gyroZ = (float)accelGyro[2] / 16.4f;
+
+      // 16384 is default sensitivity for +/- 2g
+      g_accelX = (float)accelGyro[3] / 16384.0f;
+      g_accelY = (float)accelGyro[4] / 16384.0f;
+      g_accelZ = (float)accelGyro[5] / 16384.0f;
+    }
+  }
 }
 
 // ---------------------------------------------------------
@@ -321,24 +320,17 @@ void updateDisplay() {
 
   if (g_displayPage == 0) {
     drawHeader("ENVIRONMENT");
+    
+    // Centered Temperature Display
     display.setTextSize(1);
-    display.setCursor(5, 20);
-    display.print("Temp:");
+    display.setCursor(35, 22);
+    display.print("STATION TEMP");
+    
     display.setTextSize(2);
-    display.setCursor(45, 16);
+    display.setCursor(30, 38);
     display.print(g_temperature, 1);
-    display.setTextSize(1);
-    display.print(" C");
-
-    display.drawLine(5, 36, 123, 36, SSD1306_WHITE);
-
-    display.setCursor(5, 45);
-    display.print("Light:");
-    display.setTextSize(2);
-    display.setCursor(45, 41);
-    display.print((int)g_lightLux);
-    display.setTextSize(1);
-    display.print(" lx");
+    display.print((char)247);
+    display.print("C");
 
   } else if (g_displayPage == 1) {
     drawHeader("18650 MH1 BATTERY");
@@ -482,6 +474,39 @@ void updateDisplay() {
     display.setCursor(4, 45);
     display.print("Time: ");
     display.print(g_timestamp);
+  } else if (g_displayPage == 5) {
+    drawHeader("IMU / MOTION");
+    display.setTextSize(1);
+    
+    if (!g_bmi160Connected) {
+      display.setCursor(15, 30);
+      display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
+      display.print(" SENSOR NOT FOUND ");
+      display.setTextColor(SSD1306_WHITE);
+      display.setCursor(4, 50);
+      display.print("Check ADDR (0x69/68)");
+      return;
+    }
+
+    // Accel column
+    display.setCursor(5, 18);
+    display.print("ACC [G]");
+    display.setCursor(5, 28);
+    display.printf("X: %1.2f", g_accelX);
+    display.setCursor(5, 38);
+    display.printf("Y: %1.2f", g_accelY);
+    display.setCursor(5, 48);
+    display.printf("Z: %1.2f", g_accelZ);
+    
+    // Gyro column
+    display.setCursor(68, 18);
+    display.print("GYR [d/s]");
+    display.setCursor(68, 28);
+    display.printf("X: %d", (int)g_gyroX);
+    display.setCursor(68, 38);
+    display.printf("Y: %d", (int)g_gyroY);
+    display.setCursor(68, 48);
+    display.printf("Z: %d", (int)g_gyroZ);
   }
 
   // Draw page navigation indicators (centered, MAX_PAGES pages)
@@ -495,7 +520,7 @@ void updateDisplay() {
   display.display();
 }
 
-void pollButtons() {
+bool pollButtons() {
   static bool lastBtn1 = HIGH;
   static bool lastBtn2 = HIGH;
   bool btn1 = digitalRead(BTN1_PIN);
@@ -512,8 +537,11 @@ void pollButtons() {
     g_displayPage = (g_displayPage + 1) % MAX_PAGES;
     addLog("Page Next: " + String(g_displayPage));
   }
+  
+  bool changed = (btn1 == LOW && lastBtn1 == HIGH) || (btn2 == LOW && lastBtn2 == HIGH);
   lastBtn1 = btn1;
   lastBtn2 = btn2;
+  return changed;
 }
 
 void reconnectMQTT() {
@@ -579,7 +607,11 @@ String getTelemetryJSON() {
   json += "\"battery_percentage\":" + String(batPercent, 1) + ",";
   json += "\"current_now\":" + String(g_current, 1) + ",";
   json += "\"current_total\":" + String(g_totalMah, 2) + ",";
-  json += "\"battery_life\":\"" + batLifeStr + "\"";
+  json += "\"battery_life\":\"" + batLifeStr + "\",";
+  json += "\"imu\":{";
+  json += "\"accel\":{\"x\":" + String(g_accelX, 3) + ",\"y\":" + String(g_accelY, 3) + ",\"z\":" + String(g_accelZ, 3) + "},";
+  json += "\"gyro\":{\"x\":" + String(g_gyroX, 1) + ",\"y\":" + String(g_gyroY, 1) + ",\"z\":" + String(g_gyroZ, 1) + "}";
+  json += "}";
   json += "}";
 
   return json;
@@ -783,18 +815,62 @@ setInterval(refresh,3000);
   server.send(200, "text/html", html);
 }
 
+void i2c_recovery() {
+  pinMode(I2C_SDA_PIN, INPUT_PULLUP);
+  pinMode(I2C_SCL_PIN, OUTPUT);
+  for (int i = 0; i < 10; i++) {
+    digitalWrite(I2C_SCL_PIN, LOW); delayMicroseconds(10);
+    digitalWrite(I2C_SCL_PIN, HIGH); delayMicroseconds(10);
+  }
+}
+
+void run_i2c_scanner() {
+  Serial.println(F("\nI2C Scanner: Scanning addresses 0x01 to 0x7F..."));
+  byte error, address;
+  int nDevices = 0;
+  for(address = 1; address < 127; address++) {
+    // Attempting address
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.print(F("SUCCESS at 0x"));
+      if (address<16) Serial.print("0");
+      Serial.println(address, HEX);
+      nDevices++;
+    } else if (error == 4) {
+      Serial.print(F("Unknown error at 0x"));
+      if (address<16) Serial.print("0");
+      Serial.println(address, HEX);
+    }
+    // Small delay between scan attempts
+    delay(1);
+  }
+  if (nDevices == 0) Serial.println(F("SCAN FAILED: No I2C devices found"));
+  else Serial.println(F("Scan complete."));
+}
+
 void setup() {
   Serial.begin(115200);
-  delay(500);
-
-  // Measure raw baseline idle count before WiFi background tasks start
-  esp_register_freertos_idle_hook(idle_task_hook);
   delay(1000);
-  maxIdleCount = idleCounter;
+  Serial.println(F("\n--- SYSTEM BOOT ---"));
+
+  i2c_recovery();
+
+  // Measure raw baseline idle count before background tasks pollute the stats
+  esp_register_freertos_idle_hook(idle_task_hook);
+  delay(2000); // 2 full seconds of pure idle
+  maxIdleCount = idleCounter / 2; // Normalize to 1 second
+  idleCounter = 0;
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setClock(100000); // 100kHz e mai stabil decat 400kHz
-  Wire.setTimeOut(50);    // Anti-freeze: Limit wait to 50ms
+  Wire.setClock(100000); 
+  Wire.setTimeOut(50);
+  
+  analogSetAttenuation(ADC_11db); // Full range 0V - 3.1V
+  analogReadResolution(12);       // 0 - 4095
+  pinMode(TEMP_ADC_PIN, ANALOG);
+  
+  run_i2c_scanner();
 
   pinMode(BTN1_PIN, INPUT_PULLUP);
   pinMode(BTN2_PIN, INPUT_PULLUP);
@@ -802,10 +878,12 @@ void setup() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     Serial.println(F("SSD1306 error!"));
   drawMinimalistLogo();
-  delay(2000); // Display logo for 2 seconds
+  delay(1000); 
 
   if (!ina219.begin())
     Serial.println(F("INA219 error!"));
+
+  // --- RTC ---
   if (!rtc.begin()) {
     addLog("RTC error!");
   } else {
@@ -815,6 +893,23 @@ void setup() {
     snprintf(g_timestamp, sizeof(g_timestamp), "%02d:%02d:%02d", now.hour(),
              now.minute(), now.second());
     addLog("RTC synced: " + String(g_timestamp));
+  }
+
+  // --- BMI160 ---
+  bmi160 = new DFRobot_BMI160(); 
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN); // Re-assert pins
+  
+  if (bmi160->I2cInit(0x69) == 0) {
+    g_bmi160Connected = true;
+    addLog("BMI160 OK (0x69)");
+  } else {
+    // Check 0x68 as fallback (silently, to see if it responds)
+    if (bmi160->I2cInit(0x68) == 0) {
+       g_bmi160Connected = true;
+       addLog("BMI160 OK (0x68 CONFLICT)");
+    } else {
+       addLog("BMI160 NOT FOUND");
+    }
   }
 
   // --- WiFiManager Setup ---
@@ -903,9 +998,17 @@ void loop() {
     publishMQTT();
   }
 
-  if (now - lastDisplayMs >= 100) {
+  static uint32_t lastButtonMs = 0;
+  if (now - lastButtonMs >= 30) { // Poll buttons and handle debouncing every 30ms
+    lastButtonMs = now;
+    if (pollButtons()) {
+        updateDisplay(); // Immediate feedback on page change
+        lastDisplayMs = now;
+    }
+  }
+
+  if (now - lastDisplayMs >= 500) { // Keep 2Hz sensor update for general stats
     lastDisplayMs = now;
-    pollButtons();
     updateDisplay();
   }
 
