@@ -55,8 +55,7 @@ WiFiClient imuSocketClient;
 
 // ---------------------------------------------------------
 // Temperature offset to compensate for component tolerances
-// Starting clean (0.0) after standardizing NTC parameters
-#define TEMP_CALIBRATION_OFFSET -13.4f
+#define TEMP_CALIBRATION_OFFSET -10.1f
 
 // Thermistor model for current board thermistor (10k NTC + 10k divider)
 #define NTC_NOMINAL_OHMS 10000.0f
@@ -383,10 +382,6 @@ void streamImuAt100Hz() {
   }
   lastSampleUs = nowUs;
 
-  if (!imuSocketClient || !imuSocketClient.connected()) {
-    return;
-  }
-
   int16_t accelGyro[6] = {0, 0, 0, 0, 0, 0}; // [0..2] = gyro, [3..5] = accel
   bool imuReadOk = false;
   if (g_bmi160Connected && bmi160 != nullptr) {
@@ -395,13 +390,17 @@ void streamImuAt100Hz() {
   }
 
   if (imuReadOk) {
-    // Keep display values current without additional sensor reads.
+    // Update display values regardless of client connection
     g_gyroX = (float)accelGyro[0] / 16.4f;
     g_gyroY = (float)accelGyro[1] / 16.4f;
     g_gyroZ = (float)accelGyro[2] / 16.4f;
     g_accelX = (float)accelGyro[3] / 16384.0f;
     g_accelY = (float)accelGyro[4] / 16384.0f;
     g_accelZ = (float)accelGyro[5] / 16384.0f;
+  }
+
+  if (!imuSocketClient || !imuSocketClient.connected()) {
+    return;
   }
 
   ImuStreamPacket pkt;
