@@ -1,0 +1,23 @@
+# Ghid Conectare Access Point - HS IMU Stream
+
+## Date Conexiune WiFi:
+- **SSID**: HS_IMU_STREAM
+- **Parolă**: 12345678
+- **Adresă IP ESP32**: 192.168.4.1
+
+## Detalii Server WebSocket:
+- **URL**: ws://192.168.4.1:3333
+- **Port**: 3333
+
+## Fluxuri de Date:
+1. **High-Speed IMU (100Hz)**: 
+   - Tip: Binary
+   - Format: Structură `ImuStreamPacket` (vezi CLIENT_INTEGRATION.md pentru byte offsets)
+2. **Low-Speed Telemetrie (1Hz)**:
+   - Tip: Text (JSON)
+   - Format: `{"type":"telemetry", "temp":24.5, "volt":3.8, ...}`
+
+## Instrucțiuni Implementare:
+- **Web**: Conectați-vă folosind `new WebSocket('ws://192.168.4.1:3333')`. Setați `binaryType = 'arraybuffer'` pentru datele IMU.
+- **Mobile**: Utilizați o bibliotecă WebSocket (ex: OkHttp pentru Android) și conectați-vă la același URL.
+- **AP Mode**: Asigurați-vă că dispozitivul (telefon/laptop) este conectat la rețeaua WiFi emisă de ESP32 înainte de a încerca conexiunea WebSocket.

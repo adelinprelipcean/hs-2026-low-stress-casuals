@@ -1,24 +1,22 @@
-#include "secrets.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_INA219.h>
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
+#include <ArduinoJson.h>
+#include <DFRobot_BMI160.h>
 #include <RTClib.h>
+#include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <Wire.h>
-#include <DFRobot_BMI160.h>
 
-
-extern "C" {
-#include "esp_freertos_hooks.h"
-}
+#include <esp_freertos_hooks.h>
 #include <algorithm>
 #include <vector>
 
 // Packet layout is intentionally compact for low-latency socket streaming.
 #pragma pack(push, 1)
 struct ImuStreamPacket {
-  uint8_t header;
+  uint8_t header; // 0xA1 (IMU_PACKET_HEADER_RAW) or 0xE1 (IMU_PACKET_HEADER_STATUS)
   uint32_t sequence;
   uint32_t sampleMicros;
   int16_t gyroX;
@@ -27,6 +25,19 @@ struct ImuStreamPacket {
   int16_t accelX;
   int16_t accelY;
   int16_t accelZ;
+};
+
+struct TelemetryPacket {
+  uint8_t header; // 0xD4
+  uint32_t sampleMs;
+  float temp;
+  float volt;
+  float curr;
+  uint8_t bat;
+  uint8_t cpu;
+  uint8_t rtcHour;
+  uint8_t rtcMin;
+  uint8_t rtcSec;
 };
 #pragma pack(pop)
 
@@ -47,9 +58,10 @@ struct ImuStreamPacket {
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 Adafruit_INA219 ina219;
 RTC_DS3231 rtc;
-DFRobot_BMI160* bmi160 = nullptr;
-WiFiServer imuSocketServer(3333);
-WiFiClient imuSocketClient;
+DFRobot_BMI160 *bmi160 = nullptr;
+
+// WebSocket Server (Port 3333 as requested)
+WebSocketsServer webSocket = WebSocketsServer(3333);
 
 #define PCF8591_ADDR 0x48
 
@@ -69,7 +81,7 @@ WiFiClient imuSocketClient;
 // ---------------------------------------------------------
 // Telemetry State
 // ---------------------------------------------------------
-float g_temperature = 0;
+float g_temperature = -999.0f;
 float g_lightLux = 0;
 float g_voltage = 0;
 float g_current = 0;
@@ -111,6 +123,7 @@ const uint8_t AP_MAX_CLIENTS = 4;
 // IMU stream settings
 const uint8_t IMU_PACKET_HEADER_RAW = 0xA1;
 const uint8_t IMU_PACKET_HEADER_STATUS = 0xE1;
+const uint8_t TELEMETRY_PACKET_HEADER = 0xD4;
 const uint32_t IMU_STREAM_INTERVAL_US = 10000; // 100Hz
 uint32_t g_imuPacketSequence = 0;
 
@@ -122,6 +135,33 @@ void addLog(String msg) {
   g_logBuffer += line;
   if (g_logBuffer.length() > 6000) {
     g_logBuffer = g_logBuffer.substring(1000);
+  }
+}
+
+// ---------------------------------------------------------
+// WebSocket Event Handler
+// ---------------------------------------------------------
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+  case WStype_DISCONNECTED:
+    addLog("WS [" + String(num) + "] Disconnected");
+    break;
+  case WStype_CONNECTED: {
+    IPAddress ip = webSocket.remoteIP(num);
+    addLog("WS [" + String(num) + "] Connected from " + ip.toString());
+    break;
+  }
+  case WStype_TEXT:
+    // Manual command handling if needed
+    break;
+  case WStype_BIN:
+    break;
+  case WStype_ERROR:
+  case WStype_FRAGMENT_TEXT_START:
+  case WStype_FRAGMENT_BIN_START:
+  case WStype_FRAGMENT:
+  case WStype_FRAGMENT_FIN:
+    break;
   }
 }
 
@@ -153,8 +193,8 @@ bool startAccessPoint() {
 
   if (!apOk) {
     for (uint8_t attempt = 0; attempt < 2 && !apOk; attempt++) {
-      apOk = WiFi.softAP(AP_SSID_OPEN, nullptr, AP_CHANNEL, false,
-                         AP_MAX_CLIENTS);
+      apOk =
+          WiFi.softAP(AP_SSID_OPEN, nullptr, AP_CHANNEL, false, AP_MAX_CLIENTS);
       if (!apOk) {
         delay(250);
       }
@@ -199,18 +239,19 @@ uint8_t readPCF8591(uint8_t channel) {
   uint8_t configByte = 0x40 | (channel & 0x03);
   Wire.beginTransmission(PCF8591_ADDR);
   Wire.write(configByte);
-  
-  // Daca endTransmission returneaza altceva decat 0, inseamna ca bus-ul e blocat
+
+  // Daca endTransmission returneaza altceva decat 0, inseamna ca bus-ul e
+  // blocat
   if (Wire.endTransmission(true) != 0) {
     Serial.println("I2C Bus Error la PCF8591!");
-    return 255; 
+    return 255;
   }
-  
+
   delay(5); // Timp pentru conversie ADC
-  
-  uint8_t count = Wire.requestFrom(PCF8591_ADDR, (uint8_t)2);
+
+  uint8_t count = Wire.requestFrom((uint8_t)PCF8591_ADDR, (uint8_t)2);
   if (count >= 2) {
-    Wire.read(); // Ignoram primul byte (vechi)
+    Wire.read();        // Ignoram primul byte (vechi)
     return Wire.read(); // Returnam valoarea actuala
   }
   return 255;
@@ -218,13 +259,16 @@ uint8_t readPCF8591(uint8_t channel) {
 
 // Helper function for Steinhart math
 float ntcMath(float resistance) {
-  if (resistance < 10.0f || resistance > 1000000.0f) return -99.0f;
+  if (resistance < 10.0f || resistance > 1000000.0f)
+    return -99.0f;
   float steinhart = logf(resistance / NTC_NOMINAL_OHMS) / NTC_BETA_VALUE +
                     1.0f / NTC_REFERENCE_TEMP_K;
   return 1.0f / steinhart - 273.15f;
 }
 
 float ntcResistanceFromAdc(uint16_t adcRaw) {
+  if (adcRaw == 0) return 1000000.0f; // Prevent division by zero, return max resistance
+  if (adcRaw >= 4095) return 10.0f;    // Prevent saturation issues
 #if NTC_GND_SIDE_DIVIDER
   return (NTC_FIXED_RESISTOR_OHMS * (float)adcRaw) / (4095.0f - (float)adcRaw);
 #else
@@ -233,7 +277,11 @@ float ntcResistanceFromAdc(uint16_t adcRaw) {
 }
 
 float calculateTemperature(uint16_t adcRaw) {
-  if (adcRaw <= 5 || adcRaw >= 4090) return -99.0f;
+  // Relaxed range to capture data even at extremes
+  if (adcRaw < 1 || adcRaw > 4094) {
+    // If it's pure 0 or 4095, it's likely a hardware disconnect
+    return -99.0f;
+  }
 
   float resistance = ntcResistanceFromAdc(adcRaw);
   return ntcMath(resistance);
@@ -284,14 +332,15 @@ void readSensors() {
   g_cpuLoad = constrain(load, 0.0f, 100.0f);
 
   // --- INTERNAL ADC (NTC) ---
-  uint16_t samples[101];
-  for(int i=0; i<100; i++) {
+  uint16_t samples[100];
+  for (int i = 0; i < 100; i++) {
     samples[i] = analogRead(TEMP_ADC_PIN);
-    if(i % 25 == 0) delay(1);
+    if (i % 25 == 0)
+      delay(1);
   }
   std::sort(samples, samples + 100);
   g_rawAIN1 = samples[50];
-  
+
   float instantTemp = calculateTemperature(g_rawAIN1);
 
   static uint8_t tempDebugDecimator = 0;
@@ -300,17 +349,19 @@ void readSensors() {
     tempDebugDecimator = 0;
     // Calculating raw resistance for debug
     float resDebug = ntcResistanceFromAdc(g_rawAIN1);
-    Serial.printf("[TMP] ADC:%d | Res:%.0f | Result:%.1f C\n", g_rawAIN1, resDebug, instantTemp);
+    Serial.printf("[TMP] ADC:%d | Res:%.0f | Result:%.1f C\n", g_rawAIN1,
+                  resDebug, instantTemp);
   }
 
   // Fast Startup & Smooth EMA (Alpha = 0.04)
-  if (g_temperature < -90.0f || g_temperature == 0.0f) {
-      if (instantTemp > -90.0f) g_temperature = instantTemp + TEMP_CALIBRATION_OFFSET;
+  if (g_temperature < -900.0f) {
+    if (instantTemp > -90.0f)
+      g_temperature = instantTemp + TEMP_CALIBRATION_OFFSET;
   } else {
-      if (instantTemp > -90.0f) {
-          float calibrated = instantTemp + TEMP_CALIBRATION_OFFSET;
-          g_temperature = (g_temperature * 0.96f) + (calibrated * 0.04f);
-      }
+    if (instantTemp > -90.0f) {
+      float calibrated = instantTemp + TEMP_CALIBRATION_OFFSET;
+      g_temperature = (g_temperature * 0.60f) + (calibrated * 0.40f);
+    }
   }
 
   g_lightLux = 0;
@@ -335,15 +386,16 @@ void readSensors() {
 
   // --- Protection Check ---
   // If voltage is realistically low but above noise (0.5V), trigger shutdown
-    if (g_ina219Connected && g_voltage > 2.0f && g_voltage < BATTERY_CRITICAL_THRESHOLD) {
-      if (g_lowBatterySampleCount < 250) {
+  if (g_ina219Connected && g_voltage > 2.0f &&
+      g_voltage < BATTERY_CRITICAL_THRESHOLD) {
+    if (g_lowBatterySampleCount < 250) {
       g_lowBatterySampleCount++;
-      }
-    } else {
-      g_lowBatterySampleCount = 0;
     }
-    if (g_lowBatterySampleCount >= BATTERY_CRITICAL_CONFIRM_SAMPLES) {
-      g_isBatteryCritical = true;
+  } else {
+    g_lowBatterySampleCount = 0;
+  }
+  if (g_lowBatterySampleCount >= BATTERY_CRITICAL_CONFIRM_SAMPLES) {
+    g_isBatteryCritical = true;
   }
 
   // --- RTC ---
@@ -351,26 +403,33 @@ void readSensors() {
   DateTime now = rtc.now();
   snprintf(g_timestamp, sizeof(g_timestamp), "%02d:%02d:%02d", now.hour(),
            now.minute(), now.second());
-
 }
 
-void handleImuSocketClient() {
-  if (imuSocketClient && !imuSocketClient.connected()) {
-    imuSocketClient.stop();
-    addLog("IMU socket client disconnected");
-  }
+// ---------------------------------------------------------
+// WebSocket Data Stream Logic
+// ---------------------------------------------------------
 
-  WiFiClient candidate = imuSocketServer.available();
-  if (candidate) {
-    if (imuSocketClient && imuSocketClient.connected()) {
-      imuSocketClient.stop();
-      addLog("IMU socket replaced old client");
-    }
+void sendTelemetryToWebSocket() {
+  if (webSocket.connectedClients() == 0)
+    return;
 
-    imuSocketClient = candidate;
-    imuSocketClient.setNoDelay(true);
-    addLog("IMU socket client connected");
-  }
+  DateTime now = rtc.now();
+  float batPercent = (g_voltage - 3.0f) / (4.2f - 3.0f) * 100.0f;
+  batPercent = constrain(batPercent, 0.0f, 100.0f);
+
+  TelemetryPacket pkt;
+  pkt.header = TELEMETRY_PACKET_HEADER;
+  pkt.sampleMs = millis();
+  pkt.temp = g_temperature;
+  pkt.volt = g_voltage;
+  pkt.curr = g_current;
+  pkt.bat = (uint8_t)batPercent;
+  pkt.cpu = (uint8_t)g_cpuLoad;
+  pkt.rtcHour = now.hour();
+  pkt.rtcMin = now.minute();
+  pkt.rtcSec = now.second();
+
+  webSocket.broadcastBIN((uint8_t *)&pkt, sizeof(TelemetryPacket));
 }
 
 void streamImuAt100Hz() {
@@ -399,7 +458,7 @@ void streamImuAt100Hz() {
     g_accelZ = (float)accelGyro[5] / 16384.0f;
   }
 
-  if (!imuSocketClient || !imuSocketClient.connected()) {
+  if (webSocket.connectedClients() == 0) {
     return;
   }
 
@@ -414,11 +473,7 @@ void streamImuAt100Hz() {
   pkt.accelY = accelGyro[4];
   pkt.accelZ = accelGyro[5];
 
-  size_t written = imuSocketClient.write((const uint8_t *)&pkt, sizeof(ImuStreamPacket));
-  if (written != sizeof(ImuStreamPacket)) {
-    imuSocketClient.stop();
-    addLog("IMU socket short write/disconnect");
-  }
+  webSocket.broadcastBIN((uint8_t *)&pkt, sizeof(ImuStreamPacket));
 }
 
 // ---------------------------------------------------------
@@ -469,17 +524,21 @@ void updateDisplay() {
 
   if (g_displayPage == 0) {
     drawHeader("ENVIRONMENT");
-    
+
     // Centered Temperature Display
     display.setTextSize(1);
     display.setCursor(35, 22);
     display.print("STATION TEMP");
-    
+
     display.setTextSize(2);
     display.setCursor(30, 38);
-    display.print(g_temperature, 1);
-    display.print((char)247);
-    display.print("C");
+    if (g_temperature > -900.0f) {
+      display.print(g_temperature, 1);
+      display.print((char)247);
+      display.print("C");
+    } else {
+      display.print("---");
+    }
 
   } else if (g_displayPage == 1) {
     drawHeader("18650 MH1 BATTERY");
@@ -546,14 +605,14 @@ void updateDisplay() {
 
     // 2. Timestamp
     display.setCursor(0, 16);
-    display.print("TIME:  "); 
+    display.print("TIME:  ");
     display.print(g_timestamp);
 
     // 3. Raw I/O Data (Fixed horizontal fit)
     display.setCursor(0, 26);
-    display.printf("RAW: A0:%03d  A1:%04d", g_rawAIN0, g_rawAIN1); 
+    display.printf("RAW: A0:%03d  A1:%04d", g_rawAIN0, g_rawAIN1);
     display.setCursor(0, 35);
-    display.printf("     A2:%03d  A3:%03d", g_rawAIN2, g_rawAIN3); 
+    display.printf("     A2:%03d  A3:%03d", g_rawAIN2, g_rawAIN3);
 
     // 4. Separator
     display.drawLine(0, 46, 127, 46, SSD1306_WHITE);
@@ -569,16 +628,16 @@ void updateDisplay() {
     display.setCursor(64, 20);
     display.print(g_cpuLoad, 1);
     display.print("%");
-    
+
     display.drawLine(5, 36, 123, 36, SSD1306_WHITE);
-    
+
     display.setCursor(4, 45);
     display.print("Time: ");
     display.print(g_timestamp);
   } else if (g_displayPage == 4) {
     drawHeader("IMU / MOTION");
     display.setTextSize(1);
-    
+
     if (!g_bmi160Connected) {
       display.setCursor(15, 30);
       display.setTextColor(SSD1306_BLACK, SSD1306_WHITE);
@@ -598,7 +657,7 @@ void updateDisplay() {
     display.printf("Y: %1.2f", g_accelY);
     display.setCursor(5, 48);
     display.printf("Z: %1.2f", g_accelZ);
-    
+
     // Gyro column
     display.setCursor(68, 18);
     display.print("GYR [d/s]");
@@ -631,15 +690,17 @@ bool pollButtons() {
   g_btn2State = (btn2 == LOW);
 
   if (btn1 == LOW && lastBtn1 == HIGH) {
-    g_displayPage = (g_displayPage == 0) ? (MAX_PAGES - 1) : (g_displayPage - 1);
+    g_displayPage =
+        (g_displayPage == 0) ? (MAX_PAGES - 1) : (g_displayPage - 1);
     addLog("Page Prev: " + String(g_displayPage));
   }
   if (btn2 == LOW && lastBtn2 == HIGH) {
     g_displayPage = (g_displayPage + 1) % MAX_PAGES;
     addLog("Page Next: " + String(g_displayPage));
   }
-  
-  bool changed = (btn1 == LOW && lastBtn1 == HIGH) || (btn2 == LOW && lastBtn2 == HIGH);
+
+  bool changed =
+      (btn1 == LOW && lastBtn1 == HIGH) || (btn2 == LOW && lastBtn2 == HIGH);
   lastBtn1 = btn1;
   lastBtn2 = btn2;
   return changed;
@@ -649,8 +710,10 @@ void i2c_recovery() {
   pinMode(I2C_SDA_PIN, INPUT_PULLUP);
   pinMode(I2C_SCL_PIN, OUTPUT);
   for (int i = 0; i < 10; i++) {
-    digitalWrite(I2C_SCL_PIN, LOW); delayMicroseconds(10);
-    digitalWrite(I2C_SCL_PIN, HIGH); delayMicroseconds(10);
+    digitalWrite(I2C_SCL_PIN, LOW);
+    delayMicroseconds(10);
+    digitalWrite(I2C_SCL_PIN, HIGH);
+    delayMicroseconds(10);
   }
 }
 
@@ -658,25 +721,29 @@ void run_i2c_scanner() {
   Serial.println(F("\nI2C Scanner: Scanning addresses 0x01 to 0x7F..."));
   byte error, address;
   int nDevices = 0;
-  for(address = 1; address < 127; address++) {
+  for (address = 1; address < 127; address++) {
     // Attempting address
     Wire.beginTransmission(address);
     error = Wire.endTransmission();
     if (error == 0) {
       Serial.print(F("SUCCESS at 0x"));
-      if (address<16) Serial.print("0");
+      if (address < 16)
+        Serial.print("0");
       Serial.println(address, HEX);
       nDevices++;
     } else if (error == 4) {
       Serial.print(F("Unknown error at 0x"));
-      if (address<16) Serial.print("0");
+      if (address < 16)
+        Serial.print("0");
       Serial.println(address, HEX);
     }
     // Small delay between scan attempts
     delay(1);
   }
-  if (nDevices == 0) Serial.println(F("SCAN FAILED: No I2C devices found"));
-  else Serial.println(F("Scan complete."));
+  if (nDevices == 0)
+    Serial.println(F("SCAN FAILED: No I2C devices found"));
+  else
+    Serial.println(F("Scan complete."));
 }
 
 void setup() {
@@ -699,13 +766,13 @@ void setup() {
   }
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setClock(100000); 
+  Wire.setClock(100000);
   Wire.setTimeOut(50);
-  
+
   analogSetAttenuation(ADC_11db); // Full range 0V - 3.1V
   analogReadResolution(12);       // 0 - 4095
   pinMode(TEMP_ADC_PIN, ANALOG);
-  
+
   run_i2c_scanner();
 
   pinMode(BTN1_PIN, INPUT_PULLUP);
@@ -714,7 +781,7 @@ void setup() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
     Serial.println(F("SSD1306 error!"));
   drawMinimalistLogo();
-  delay(1000); 
+  delay(1000);
 
   g_ina219Connected = ina219.begin();
   if (!g_ina219Connected)
@@ -733,26 +800,28 @@ void setup() {
   }
 
   // --- BMI160 ---
-  bmi160 = new DFRobot_BMI160(); 
+  bmi160 = new DFRobot_BMI160();
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN); // Re-assert pins
-  
+
   if (bmi160->I2cInit(0x69) == 0) {
     g_bmi160Connected = true;
     addLog("BMI160 OK (0x69)");
   } else {
     // Check 0x68 as fallback (silently, to see if it responds)
     if (bmi160->I2cInit(0x68) == 0) {
-       g_bmi160Connected = true;
-       addLog("BMI160 OK (0x68 CONFLICT)");
+      g_bmi160Connected = true;
+      addLog("BMI160 OK (0x68 CONFLICT)");
     } else {
-       addLog("BMI160 NOT FOUND");
+      addLog("BMI160 NOT FOUND");
     }
   }
 
   startAccessPoint();
-  imuSocketServer.begin();
-  imuSocketServer.setNoDelay(true);
-  addLog("IMU socket ready on :3333");
+
+  // WebSocket Server Setup
+  webSocket.begin();
+  webSocket.onEvent(onWebSocketEvent);
+  addLog("WS Server ready on port 3333");
 
   delay(1500);
 }
@@ -763,32 +832,38 @@ void loop() {
   static uint32_t lastDisplayMs = 0;
   static uint32_t lastApHealthMs = 0;
 
+  // Handle WebSocket clients
+  webSocket.loop();
+
+  // High-Speed IMU Stream (100Hz)
+  streamImuAt100Hz();
+
+  // Low-Speed Sensors & Telemetry (1Hz)
   if (now - lastSensorMs >= 1000) {
     lastSensorMs = now;
     readSensors();
+    sendTelemetryToWebSocket();
   }
 
-  handleImuSocketClient();
-  streamImuAt100Hz();
-
   static uint32_t lastButtonMs = 0;
-  if (now - lastButtonMs >= 30) { // Poll buttons and handle debouncing every 30ms
+  if (now - lastButtonMs >= 30) {
     lastButtonMs = now;
     if (pollButtons()) {
-        updateDisplay(); // Immediate feedback on page change
-        lastDisplayMs = now;
+      updateDisplay();
+      lastDisplayMs = now;
     }
   }
 
-  if (now - lastDisplayMs >= 500) { // Keep 2Hz sensor update for general stats
+  // Display Update (Limited to 5Hz / 200ms)
+  if (now - lastDisplayMs >= 200) {
     lastDisplayMs = now;
     updateDisplay();
   }
 
   if (g_isBatteryCritical) {
     addLog("CRITICAL BATTERY! Shutting down...");
-    updateDisplay(); // Show warning
-    delay(5000);     // Wait 5s for user to read
+    updateDisplay();
+    delay(5000);
     display.clearDisplay();
     display.display();
     esp_deep_sleep_start();
@@ -796,14 +871,14 @@ void loop() {
 
   if (now - lastApHealthMs >= 10000) {
     lastApHealthMs = now;
-    bool apHealthy = (WiFi.getMode() == WIFI_AP) && (WiFi.softAPIP() != IPAddress(0, 0, 0, 0));
+    bool apHealthy = (WiFi.getMode() == WIFI_AP) &&
+                     (WiFi.softAPIP() != IPAddress(0, 0, 0, 0));
     if (!apHealthy) {
       addLog("AP unhealthy, restarting...");
       startAccessPoint();
     }
   }
 
-  // Yield crucial catre task-ul Idle din FreeRTOS pentru a calcula CPU Load
-  // eficient si a nu bloca watchdog-ul
-  delay(2);
+  // Yield for CPU Load calculation and watchdog safety
+  delay(1);
 }
