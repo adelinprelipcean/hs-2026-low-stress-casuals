@@ -1,219 +1,181 @@
-#include "soc/gpio_reg.h"
-#include "soc/gpio_struct.h"
 #include <Arduino.h>
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
 
-/**
- * Analizor Logic SUMP (Openbench Logic Sniffer) pe ESP32-C3
- *
- * Pini monitorizați:
- * Channel 0: GPIO 5 (SDA)
- * Channel 1: GPIO 6 (SCL)
- * Channel 2: GPIO 7
- * Channel 3: GPIO 8
- *
- * Protocol: Openbench Logic Sniffer (SUMP)
- */
+// --- Configurari Hardware ---
+#define SDA_PIN 5
+#define SCL_PIN 6
+#define NTC_PIN 2
 
-// --- Configurații ---
-#define MAX_SAMPLES 64000   // 64 KB de RAM pentru buffer
-#define SERIAL_SPEED 115200 // Viteză port serial
+// Wi-Fi Channel for ESP-NOW (MUST match AP mode of the first ESP32)
+#define WIFI_CHANNEL 6
 
-// --- Comenzi SUMP ---
-#define SUMP_RESET 0x00
-#define SUMP_ID 0x02
-#define SUMP_RUN 0x01
-#define SUMP_SET_DIVIDER 0x80
-#define SUMP_SET_READ_DELAY 0x81
-#define SUMP_SET_FLAGS 0x82
+// --- Structura Pachetului ESP-NOW ---
+#pragma pack(push, 1)
+struct AnalyzerPacket {
+  uint8_t header;          // 0xA2
+  uint32_t frame_sequence; // Numarul "cadrului" capturat
+  uint8_t fragment_id;     // Indexul fragmentului (0 ... total-1)
+  uint8_t total_fragments; // Cate fragmente compun acest cadru
+  uint16_t analog_val;     // Valoarea ADC a termistorului
+  uint16_t samples_count;  // Cate eșantioane/citiri digitale contine data[]
+  uint8_t data[230]; // Payload brut. Fiecare byte contine 4 eșantioane de 2
+                     // biți (SDA,SCL)
+};
+#pragma pack(pop)
 
 // --- Variabile Globale ---
-uint8_t buffer[MAX_SAMPLES]; // Buffer pentru eșantioane
-uint32_t divider = 0; // Divizor frecvență (SUMP standard: 100MHz / (divider+1))
-uint32_t readCount = 0;  // Număr de eșantioane de citit
-uint32_t delayCount = 0; // Buffer pre-trigger (nefolosit momentan)
+// 1 cadru complet ar fi de ex. 10 fragmente * 240 bytes = 2400 bytes
+// 1 cadru complet ar fi de ex. 10 fragmente * 230 bytes = 2300 bytes
+// Fiecare byte va contine 4 citiri (2 biti per citire: SDA, SCL)
+// Deci 2300 bytes * 4 = 9200 citiri (la 1 MHz = 9.2 milisecunde de I2C trafic!)
+#define FRAGMENTS_PER_FRAME 10
+#define SAMPLES_PER_BYTE 4
+#define TOTAL_SAMPLES (FRAGMENTS_PER_FRAME * 230 * SAMPLES_PER_BYTE)
 
-/**
- * Funcție pentru trimiterea ID-ului dispozitivului (SLA1)
- * Aceasta informează PulseView că suntem un Logic Sniffer.
- */
-void sendID() {
-  Serial.write('1');
-  Serial.write('A');
-  Serial.write('L');
-  Serial.write('S');
-}
+// Buffer temporar in care logam la viteza maxima (1 byte per citire, il
+// comprimam mai tarziu)
+uint8_t fast_buffer[TOTAL_SAMPLES];
 
-/**
- * Captura propriu-zisă a eșantioanelor.
- * Folosește register-read direct pentru viteză maximă.
- */
-void capture() {
-  // Calculăm delay-ul bazat pe divider.
-  // OBLS are bază 100MHz. ESP32-C3 are 160MHz, ajustăm empiric.
-  // Pentru 1MHz, divider-ul PulseView este 99.
-  uint32_t totalSamples = readCount;
-  if (totalSamples > MAX_SAMPLES)
-    totalSamples = MAX_SAMPLES;
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+esp_now_peer_info_t peerInfo;
+uint32_t frame_counter = 0;
 
-  // Dezactivăm întreruperile pentru a menține un timing constant
-  noInterrupts();
+void setup_esp_now() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
 
-  for (uint32_t i = 0; i < totalSamples; i++) {
-    // Folosim registrul de input pentru performanță
-    uint32_t regValue = GPIO.in.val;
+  // ESP32 Hack: station channel fix
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
 
-    // Extragem starea pinilor 5, 6, 7, 8 (4 biți)
-    buffer[i] = (uint8_t)((regValue >> 5) & 0x0F);
-
-    // Timing control (foarte simplificat pentru 1MHz)
-    // În funcție de divider, am putea adăuga delay-uri mai complexe aici
-    // ets_delay_us(microsecunde) - nu e ideal pentru precizie mare, dar bun
-    // pentru start
-    if (divider > 0) {
-      // Ajustare grosieră a frecvenței
-      uint32_t wait = divider / 10; // Experimentat empiric
-      for (volatile uint32_t d = 0; d < wait; d++) {
-        __asm__ __volatile__("nop");
-      }
-    }
-    // Delay minim pentru a nu depăși bufferul prea repede
-    __asm__ __volatile__("nop");
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Eroare la initializarea ESP-NOW");
+    return;
   }
 
-  interrupts();
+  // Setare peer catre broadcast MAC
+  memset(&peerInfo, 0,
+         sizeof(peerInfo)); // ZERO OUT struct to avoid garbage ifidx
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = WIFI_CHANNEL;
+  peerInfo.encrypt = false;
 
-  // Trimiterea datelor înapoi către PC (ordinea inversă conform protocolului
-  // SUMP) PulseView așteaptă datele începând cu ultimul eșantion capturat în
-  // mod normal, dar trimitem secvențial pentru simplitate în prima versiune.
-  for (int32_t i = totalSamples - 1; i >= 0; i--) {
-    Serial.write(buffer[i]);
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Nu s-a putut adauga colegul ESP-NOW");
+    return;
   }
+  Serial.println("ESP-NOW Initializat pe Canalul 6!");
 }
 
 void setup() {
-  // Pornim comunicația serială
-  Serial.begin(SERIAL_SPEED);
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("\n--- BOOT ANALIZOR WIRELESS ---");
 
-  // Așteptăm stabilizarea USB CDC
-  for (int i = 0; i < 10; i++) {
-    delay(200);
-    Serial.println("DEBUG: Analizor Logic Pornit...");
-  }
+  pinMode(SDA_PIN, INPUT);
+  pinMode(SCL_PIN, INPUT);
 
-  // Configurare pini ca intrări cu Pull-up (rezolvă stările nedeterminate)
-  pinMode(5, INPUT_PULLUP); // SDA
-  pinMode(6, INPUT_PULLUP); // SCL
-  pinMode(7, INPUT_PULLUP);
-  pinMode(8, INPUT_PULLUP);
+  // Configuratie NTC ADC Pin 2
+  analogSetAttenuation(ADC_11db);
+  analogReadResolution(12);
+  pinMode(NTC_PIN, ANALOG);
 
-  // Buffer curățat la pornire
-  memset(buffer, 0, MAX_SAMPLES);
+  setup_esp_now();
 }
 
 /**
-     * Mod de monitorizare simplu (textual) pentru Serial Monitor.
-     * Afișează starea celor 4 canale sub formă de biți (ex: "0101").
-     */
-    void
-    printSimpleMonitor() {
-  uint32_t samplesCount = 100; // Capturăm 100 puncte pentru vizualizare rapidă
-
-  Serial.println("\n--- START MONITORIZARE (GPIO 8 7 6 5) ---");
+ * Captureaza la viteza ultra-mare pinii I2C si ii stocheaza in memoria RAM.
+ */
+void capture_fast_logic() {
+  // Oprim intreruperile pentru acuratete
   noInterrupts();
-  for (uint32_t i = 0; i < samplesCount; i++) {
-    uint32_t regValue = GPIO.in.val;
-    buffer[i] = (uint8_t)((regValue >> 5) & 0x0F);
 
-    // Mică întârziere pentru a nu captura totul instantaneu la 160MHz
-    for (volatile int d = 0; d < 1000; d++)
-      ;
+  for (uint32_t i = 0; i < TOTAL_SAMPLES; i++) {
+    // Citire RAW eficienta direct din registru (foarte rapida, MHz range)
+    uint32_t regValue = REG_READ(GPIO_IN_REG);
+
+    // Extragem starea GPIO 5 si 6
+    // GPIO 5 (SDA) -> bit 0
+    // GPIO 6 (SCL) -> bit 1
+    uint8_t sda = (regValue >> 5) & 0x01;
+    uint8_t scl = (regValue >> 6) & 0x01;
+
+    fast_buffer[i] = (scl << 1) | sda;
+
+    // Mica asteptare hardware pentru a ne apropia the ~1 MHz sampling.
+    // Pe ESP32-C3 care ruleaza la 160MHz, un mic delay stabilizeaza fereastra.
+    __asm__ __volatile__(
+        "nop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop\n\tnop");
   }
+
   interrupts();
-
-  for (uint32_t i = 0; i < samplesCount; i++) {
-    // Afișăm biții de la 3 la 0 (GPIO 8 -> 5)
-    for (int b = 3; b >= 0; b--) {
-      Serial.print((buffer[i] >> b) & 0x01);
-    }
-    Serial.println();
-  }
-  Serial.println("--- SFÂRȘIT MONITORIZARE ---\n");
 }
 
+/**
+ * Functia principala de procesare a fluxului: Capteaza si transmite CADRUL!
+ */
 void loop() {
-  if (Serial.available() > 0) {
-    uint8_t cmd = Serial.read();
-
-    switch (cmd) {
-    case 'm':
-    case 'M':
-      printSimpleMonitor();
-      break;
-
-    case SUMP_RESET:
-      // Resetăm starea de configurare
-      divider = 0;
-      readCount = 0;
-      break;
-
-    case SUMP_ID:
-      sendID();
-      break;
-
-    case SUMP_RUN:
-      capture();
-      break;
-
-    case 0x05: // SUMP_METADATA
-      // Trimitere metadate către PulseView
-      Serial.write((uint8_t)0x01);
-      Serial.print("ESP32-C3 Logic Analyzer");
-      Serial.write((uint8_t)0x00);
-      Serial.write((uint8_t)0x02);
-      Serial.print("v0.1");
-      Serial.write((uint8_t)0x00);
-      Serial.write((uint8_t)0x23);
-      Serial.write((uint8_t)0x04);
-      Serial.write((uint8_t)0x00); // 4 canale
-      Serial.write((uint8_t)0x21); // Buffer size (4 octeți)
-      Serial.write((uint8_t)(MAX_SAMPLES & 0xFF));
-      Serial.write((uint8_t)((MAX_SAMPLES >> 8) & 0xFF));
-      Serial.write((uint8_t)((MAX_SAMPLES >> 16) & 0xFF));
-      Serial.write((uint8_t)((MAX_SAMPLES >> 24) & 0xFF));
-      Serial.write((uint8_t)0x00);
-      Serial.write((uint8_t)0x00); // Terminare
-      break;
-
-    case SUMP_SET_DIVIDER:
-      // Așteptăm 4 octeți pentru divider (conform protocolului OBLS)
-      while (Serial.available() < 4)
-        ;
-      divider = Serial.read();
-      divider |= (Serial.read() << 8);
-      divider |= (Serial.read() << 16);
-      divider |= (uint32_t)(Serial.read() << 24);
-      break;
-
-    case SUMP_SET_READ_DELAY:
-      // Așteptăm 4 octeți (citește eșantioane și delay trigger)
-      while (Serial.available() < 4)
-        ;
-      // SUMP trimite counts multiply by 4
-      readCount = (Serial.read() | (Serial.read() << 8)) + 1;
-      readCount *= 4;
-      delayCount = (Serial.read() | (Serial.read() << 8)) + 1;
-      delayCount *= 4;
-      break;
-
-    case SUMP_SET_FLAGS:
-      // Ignorăm flag-urile momentan
-      while (Serial.available() < 1)
-        Serial.read();
-      break;
-
-    default:
-      // Altele sunt comenzi complexe sau necunoscute
-      break;
-    }
+  // Interval de capură: 2-3 cadre per secunda pentru a mentine latimea de banda
+  // curata O rata prea mare (fara limitare) va gâtui rețeaua.
+  static uint32_t last_capture = 0;
+  if (millis() - last_capture < 250) {
+    delay(1);
+    return;
   }
+  last_capture = millis();
+
+  // 1. Citim analogicul (o operatiune destul de usoara)
+  uint16_t analog_val = analogRead(NTC_PIN);
+
+  // 2. Declanșăm Burst-ul Iologic I2C
+  capture_fast_logic();
+
+  // Am capturat cu succes `TOTAL_SAMPLES`. Incrementăm ID-ul cadrului.
+  frame_counter++;
+
+  // 3. Comprimam datele de la citit (4 esantioane per byte) si le transmitem
+  // prin ESP-NOW
+  AnalyzerPacket pkt;
+  pkt.header = 0xA2;
+  pkt.frame_sequence = frame_counter;
+  pkt.total_fragments = FRAGMENTS_PER_FRAME;
+  pkt.analog_val = analog_val;
+
+  uint32_t sample_idx = 0;
+
+  for (uint8_t f = 0; f < FRAGMENTS_PER_FRAME; f++) {
+    pkt.fragment_id = f;
+
+    // Umplem cele 230 bytes payload cu cele 920 (230 * 4) esantioane I2C
+    // asociate
+    pkt.samples_count = 230 * SAMPLES_PER_BYTE;
+
+    for (int b = 0; b < 230; b++) {
+      uint8_t packed_byte = 0;
+      for (int s = 0; s < 4; s++) {
+        packed_byte |= (fast_buffer[sample_idx] << (s * 2));
+        sample_idx++;
+      }
+      pkt.data[b] = packed_byte;
+    }
+
+    // Trimite fragmentul catre AP
+    esp_err_t result =
+        esp_now_send(broadcastAddress, (uint8_t *)&pkt, sizeof(AnalyzerPacket));
+
+    if (result != ESP_OK) {
+      // Daca a crapat reteaua, pauzam nitel ca sa nu suprasaturam
+      delay(2);
+    }
+
+    // ESP-NOW cere o mica pauza intre mesaje pentru stabilitate
+    delay(5);
+  }
+
+  Serial.printf(
+      "Cadru #%d trimis. NTC ADC: %d. Dimensiune semnale inramenate: %d\n",
+      frame_counter, analog_val, TOTAL_SAMPLES);
 }

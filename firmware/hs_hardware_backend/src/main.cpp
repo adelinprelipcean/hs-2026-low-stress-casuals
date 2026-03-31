@@ -8,15 +8,19 @@
 #include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_idf_version.h>
+#include <esp_now.h>
 
-#include <esp_freertos_hooks.h>
+
 #include <algorithm>
+#include <esp_freertos_hooks.h>
 #include <vector>
 
 // Packet layout is intentionally compact for low-latency socket streaming.
 #pragma pack(push, 1)
 struct ImuStreamPacket {
-  uint8_t header; // 0xA1 (IMU_PACKET_HEADER_RAW) or 0xE1 (IMU_PACKET_HEADER_STATUS)
+  uint8_t
+      header; // 0xA1 (IMU_PACKET_HEADER_RAW) or 0xE1 (IMU_PACKET_HEADER_STATUS)
   uint32_t sequence;
   uint32_t sampleMicros;
   int16_t gyroX;
@@ -38,6 +42,16 @@ struct TelemetryPacket {
   uint8_t rtcHour;
   uint8_t rtcMin;
   uint8_t rtcSec;
+};
+
+struct AnalyzerPacket {
+  uint8_t header;          // 0xA2
+  uint32_t frame_sequence; // Numarul "cadrului" capturat
+  uint8_t fragment_id;     // Indexul fragmentului (0 ... total-1)
+  uint8_t total_fragments; // Cate fragmente compun acest cadru
+  uint16_t analog_val;     // Valoarea ADC a termistorului
+  uint16_t samples_count;  // Cate eșantioane/citiri digitale contine data[]
+  uint8_t data[240];       // Payload brut.
 };
 #pragma pack(pop)
 
@@ -141,7 +155,8 @@ void addLog(String msg) {
 // ---------------------------------------------------------
 // WebSocket Event Handler
 // ---------------------------------------------------------
-void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
+                      size_t length) {
   switch (type) {
   case WStype_DISCONNECTED:
     addLog("WS [" + String(num) + "] Disconnected");
@@ -267,8 +282,10 @@ float ntcMath(float resistance) {
 }
 
 float ntcResistanceFromAdc(uint16_t adcRaw) {
-  if (adcRaw == 0) return 1000000.0f; // Prevent division by zero, return max resistance
-  if (adcRaw >= 4095) return 10.0f;    // Prevent saturation issues
+  if (adcRaw == 0)
+    return 1000000.0f; // Prevent division by zero, return max resistance
+  if (adcRaw >= 4095)
+    return 10.0f; // Prevent saturation issues
 #if NTC_GND_SIDE_DIVIDER
   return (NTC_FIXED_RESISTOR_OHMS * (float)adcRaw) / (4095.0f - (float)adcRaw);
 #else
@@ -746,6 +763,29 @@ void run_i2c_scanner() {
     Serial.println(F("Scan complete."));
 }
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void onEspNowReceive(const esp_now_recv_info_t *esp_now_info,
+                     const uint8_t *incomingData, int len) {
+#else
+void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData,
+                     int len) {
+#endif
+  if (len == sizeof(AnalyzerPacket)) {
+    AnalyzerPacket *pkt = (AnalyzerPacket *)incomingData;
+
+    // Test debug: Printează o singură dată per cadru receptionat (pentru
+    // testare uşoară)
+    if (pkt->fragment_id == 0) {
+      Serial.printf("[ESP-NOW Test] Primit Cadru #%d de la Analizor. NTC: %d\n",
+                    pkt->frame_sequence, pkt->analog_val);
+    }
+
+    if (webSocket.connectedClients() > 0) {
+      webSocket.broadcastBIN((uint8_t *)incomingData, len);
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000);
@@ -817,6 +857,16 @@ void setup() {
   }
 
   startAccessPoint();
+
+  // ESP-NOW Setup
+  if (esp_now_init() == ESP_OK) {
+    esp_now_register_recv_cb(onEspNowReceive);
+    addLog("ESP-NOW init OK");
+    Serial.println("[ESP-NOW] Init OK");
+  } else {
+    addLog("ESP-NOW init FAILED");
+    Serial.println("[ESP-NOW] Init FAILED");
+  }
 
   // WebSocket Server Setup
   webSocket.begin();
