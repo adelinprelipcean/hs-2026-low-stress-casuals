@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121212">
+
+    <SurfaceView
+        android:id="@+id/surfaceView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.example.esp32_diagtool.views.AxisGizmoView
+        android:id="@+id/axisGizmo"
+        android:layout_width="104dp"
+        android:layout_height="104dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvImuStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="IMU Data: Waiting..."
+            android:textColor="#FFFFFF"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+
+        <TextView
+            android:id="@+id/tvSequence"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Seq: --"
+            android:textColor="#80FFFFFF"
+            android:textAppearance="@style/TextAppearance.Material3.LabelSmall" />
+    </LinearLayout>
+
+</FrameLayout>

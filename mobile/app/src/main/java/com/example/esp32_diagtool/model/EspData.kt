@@ -4,7 +4,6 @@ import com.google.gson.annotations.SerializedName
 
 data class EspData(
     @SerializedName("temperature") val temperature: Float,
-    @SerializedName("light_intensity") val lightIntensity: Float,
     @SerializedName("io_log") val ioLog: String,
     @SerializedName("timestamp") val timestamp: String,
     @SerializedName("rssi") val rssi: Int,

@@ -2,7 +2,6 @@
     <string name="app_name">ESP32 Diagnostic Tool</string>
     <string name="error_connection">Could not connect to the server</string>
     <string name="label_temperature">Temperature</string>
-    <string name="label_light">Light Intensity</string>
     <string name="label_network">Network:</string>
     <string name="label_rssi">RSSI:</string>
     <string name="label_cpu_load">CPU Load:</string>
@@ -30,4 +29,10 @@
 
     <string name="msg_waiting_device">When the device sends data it\'ll appear here</string>
     <string name="msg_device_offline">The device appears to be offline.</string>
+
+    <string name="title_visualizer">3D Visualizer</string>
+    <string name="tab_3d_model">3D Model</string>
+    <string name="tab_esp_data">ESP Data</string>
+    <string name="imu_data_waiting">IMU Data: Waiting...</string>
+    <string name="imu_sequence_format">Seq: %d</string>
 </resources>

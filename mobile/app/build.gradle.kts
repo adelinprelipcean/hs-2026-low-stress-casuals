@@ -49,7 +49,13 @@ dependencies {
     implementation(libs.mpandroidchart)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
-    implementation(libs.paho.mqtt.client)
+    implementation(libs.androidx.viewpager2)
+    implementation(libs.okhttp)
+    
+    // Google Filament (Native 3D)
+    implementation(libs.filament.android)
+    implementation(libs.gltfio.android)
+    implementation(libs.filament.utils.android)
     
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
