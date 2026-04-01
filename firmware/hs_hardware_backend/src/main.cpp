@@ -13,6 +13,7 @@
 
 
 #include <algorithm>
+#include <cmath>
 #include <esp_freertos_hooks.h>
 #include <vector>
 
@@ -42,6 +43,26 @@ struct TelemetryPacket {
   uint8_t rtcHour;
   uint8_t rtcMin;
   uint8_t rtcSec;
+};
+
+struct PinsPacket {
+  uint8_t header; // 0xD5
+  uint8_t gpio4;
+  uint8_t gpio3;
+  uint8_t gpio2;
+  uint8_t gpio1;
+  uint8_t gpio21;
+  uint8_t gpio20;
+  uint8_t gpio10;
+  uint8_t gpio9;
+  uint8_t gpio8;
+  uint8_t gpio7;
+  uint8_t gpio6;
+  uint8_t gpio5;
+  uint8_t is_thermistor_connected;
+  uint8_t i2c_rtc_is_connected;
+  uint8_t i2c_gyroscope_is_connected;
+  uint8_t i2c_ida_is_connected;
 };
 
 struct AnalyzerPacket {
@@ -78,6 +99,8 @@ DFRobot_BMI160 *bmi160 = nullptr;
 WebSocketsServer webSocket = WebSocketsServer(3333);
 
 #define PCF8591_ADDR 0x48
+#define INA219_ADDR 0x40
+#define RTC_I2C_ADDR 0x68
 
 // ---------------------------------------------------------
 // Temperature offset to compensate for component tolerances
@@ -138,8 +161,10 @@ const uint8_t AP_MAX_CLIENTS = 4;
 const uint8_t IMU_PACKET_HEADER_RAW = 0xA1;
 const uint8_t IMU_PACKET_HEADER_STATUS = 0xE1;
 const uint8_t TELEMETRY_PACKET_HEADER = 0xD4;
+const uint8_t PINS_PACKET_HEADER = 0xC1;
 const uint32_t IMU_STREAM_INTERVAL_US = 10000; // 100Hz
 uint32_t g_imuPacketSequence = 0;
+uint8_t g_bmi160I2cAddr = 0;
 
 // ---------------------------------------------------------
 // Logging System
@@ -282,13 +307,17 @@ float ntcMath(float resistance) {
 }
 
 float ntcResistanceFromAdc(uint16_t adcRaw) {
-  if (adcRaw == 0)
-    return 1000000.0f; // Prevent division by zero, return max resistance
-  if (adcRaw >= 4095)
-    return 10.0f; // Prevent saturation issues
 #if NTC_GND_SIDE_DIVIDER
+  if (adcRaw >= 4095)
+    return INFINITY; // Open circuit gives infinite resistance
+  if (adcRaw == 0)
+    return 10.0f;
   return (NTC_FIXED_RESISTOR_OHMS * (float)adcRaw) / (4095.0f - (float)adcRaw);
 #else
+  if (adcRaw == 0)
+    return INFINITY; // Open circuit gives infinite resistance
+  if (adcRaw >= 4095)
+    return 10.0f;
   return (NTC_FIXED_RESISTOR_OHMS * (4095.0f - (float)adcRaw)) / (float)adcRaw;
 #endif
 }
@@ -447,6 +476,44 @@ void sendTelemetryToWebSocket() {
   pkt.rtcSec = now.second();
 
   webSocket.broadcastBIN((uint8_t *)&pkt, sizeof(TelemetryPacket));
+}
+
+uint8_t readDigitalAsBinary(uint8_t pin) {
+  return (digitalRead(pin) == HIGH) ? 1 : 0;
+}
+
+uint8_t i2cAddressResponds(uint8_t address) {
+  Wire.beginTransmission(address);
+  return (Wire.endTransmission() == 0) ? 1 : 0;
+}
+
+void sendPinsToWebSocket() {
+  if (webSocket.connectedClients() == 0)
+    return;
+
+  PinsPacket pkt{};
+  pkt.header = PINS_PACKET_HEADER;
+  pkt.gpio4 = readDigitalAsBinary(4);
+  pkt.gpio3 = readDigitalAsBinary(3);
+  pkt.gpio2 = readDigitalAsBinary(2);
+  pkt.gpio1 = readDigitalAsBinary(1);
+  pkt.gpio21 = readDigitalAsBinary(21);
+  pkt.gpio20 = readDigitalAsBinary(20);
+  pkt.gpio10 = readDigitalAsBinary(10);
+  pkt.gpio9 = readDigitalAsBinary(9);
+  pkt.gpio8 = readDigitalAsBinary(8);
+  pkt.gpio7 = readDigitalAsBinary(7);
+  pkt.gpio6 = readDigitalAsBinary(6);
+  pkt.gpio5 = readDigitalAsBinary(5);
+  float thermistorResistance = ntcResistanceFromAdc(g_rawAIN1);
+  pkt.is_thermistor_connected = std::isinf(thermistorResistance) ? 0 : 1;
+
+  pkt.i2c_rtc_is_connected = i2cAddressResponds(RTC_I2C_ADDR);
+  pkt.i2c_gyroscope_is_connected =
+      (g_bmi160I2cAddr != 0) ? i2cAddressResponds(g_bmi160I2cAddr) : 0;
+  pkt.i2c_ida_is_connected = i2cAddressResponds(INA219_ADDR);
+
+  webSocket.broadcastBIN((uint8_t *)&pkt, sizeof(PinsPacket));
 }
 
 void streamImuAt100Hz() {
@@ -845,11 +912,13 @@ void setup() {
 
   if (bmi160->I2cInit(0x69) == 0) {
     g_bmi160Connected = true;
+    g_bmi160I2cAddr = 0x69;
     addLog("BMI160 OK (0x69)");
   } else {
     // Check 0x68 as fallback (silently, to see if it responds)
     if (bmi160->I2cInit(0x68) == 0) {
       g_bmi160Connected = true;
+      g_bmi160I2cAddr = 0x68;
       addLog("BMI160 OK (0x68 CONFLICT)");
     } else {
       addLog("BMI160 NOT FOUND");
@@ -893,6 +962,7 @@ void loop() {
     lastSensorMs = now;
     readSensors();
     sendTelemetryToWebSocket();
+    sendPinsToWebSocket();
   }
 
   static uint32_t lastButtonMs = 0;
