@@ -2,6 +2,7 @@ import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { TelemetryData } from '../../types/telemetry';
 
+// Componenta de chart interfata
 interface RollingChartProps {
   dataHistory: TelemetryData[];
   dataKeyExtractor: (data: TelemetryData) => number;
@@ -12,6 +13,7 @@ interface RollingChartProps {
   domain?: [number | string, number | string];
 }
 
+// Componenta de chart
 export const RollingChart: React.FC<RollingChartProps> = ({
   dataHistory,
   dataKeyExtractor,

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { TelemetryData } from '../../types/telemetry';
-import { Battery, BatteryWarning, Zap, PlugZap } from 'lucide-react';
+import { Battery, Zap, PlugZap } from 'lucide-react';
 
 interface PowerManagementModuleProps {
   currentData: TelemetryData['power'];

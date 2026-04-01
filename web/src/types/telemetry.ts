@@ -3,7 +3,6 @@
  */
 export interface Esp32Payload {
   temperature: number;
-  light_intensity: number;
   io_log: string;
   timestamp: string; // ISO 8601 datetime
   gpio_pin: string;
@@ -15,6 +14,12 @@ export interface Esp32Payload {
   current_now: number;
   current_total: number;
   battery_life: string;
+  imu?: {
+    pitch: number;
+    roll: number;
+    yaw: number;
+    accel: number;
+  };
 }
 
 /**
@@ -24,7 +29,20 @@ export interface TelemetryData {
   timestamp: number;
   environment: {
     temperature: number;
-    lightIntensity: number;
+  };
+  imu: {
+    pitch: number;
+    roll: number;
+    yaw: number;
+    accel: number;
+    gyroX?: number;
+    gyroY?: number;
+    gyroZ?: number;
+    accelX?: number;
+    accelY?: number;
+    accelZ?: number;
+    sequence?: number;
+    sampleMicros?: number;
   };
   power: {
     voltage: number;
@@ -43,6 +61,7 @@ export interface TelemetryData {
   connected: boolean;
 }
 
+// Log entry structure for UI display
 export interface IoLogEntry {
   id: string;
   timestamp: number;

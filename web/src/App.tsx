@@ -3,18 +3,36 @@ import { EnvironmentModule } from './components/modules/EnvironmentModule';
 import { PowerManagementModule } from './components/modules/PowerManagementModule';
 import { SystemDiagnosticsModule } from './components/modules/SystemDiagnosticsModule';
 import { IoLogModule } from './components/modules/IoLogModule';
+import { Imu3DModule } from './components/modules/Imu3DModule';
 import { Cpu, WifiOff, Globe } from 'lucide-react';
 import './index.css';
 
 function App() {
   const { currentData, dataHistory, logs, dataSource, sourceMode, setSourceMode } = useEsp32Telemetry();
 
+  // Daca nu avem date INCA aratam loading screen-ul, DAR adaugam selectorul de Mock Data chiar si aici!
   if (!currentData) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 relative">
+        {/* Selectorul ascuns sus dreapta ca sa poti trisa cand e offline */}
+        <div className="absolute top-6 right-6">
+          <label className="flex items-center gap-2 text-xs text-slate-400">
+            <span className="uppercase tracking-wide">Mode</span>
+            <select
+              value={sourceMode}
+              onChange={(e) => setSourceMode(e.target.value as 'auto' | 'force-esp' | 'force-mock')}
+              className="bg-slate-900 border border-slate-700 text-slate-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-cyan-500/60"
+            >
+              <option value="auto">Auto</option>
+              <option value="force-esp">Force ESP</option>
+              <option value="force-mock">Force Mock</option>
+            </select>
+          </label>
+        </div>
+
         <Cpu className="w-16 h-16 mb-4 animate-pulse text-indigo-500" />
         <h1 className="text-2xl font-semibold text-slate-200 tracking-wide">Initializing Telemetry...</h1>
-        <p className="mt-2 text-sm">Polling ESP32-C3 Super Mini telemetry</p>
+        <p className="mt-2 text-sm text-center">Polling ESP32-C3 Super Mini telemetry<br/><span className="text-xs text-slate-500 block mt-2">(Select 'Force Mock' top right to test without hardware)</span></p>
       </div>
     );
   }
@@ -98,6 +116,13 @@ function App() {
         <div className="lg:col-span-4 h-full">
           <SystemDiagnosticsModule currentData={currentData.system} history={dataHistory} />
         </div>
+
+        {/* 3D Visualizer Row (Span 12) */}
+        {currentData.imu && (
+          <div className="lg:col-span-12 h-full">
+            <Imu3DModule currentData={currentData.imu} />
+          </div>
+        )}
 
         {/* Bottom/Left Section - Power Management (Span 5) */}
         <div className="lg:col-span-5 h-full">
