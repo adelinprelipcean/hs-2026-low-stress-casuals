@@ -2,6 +2,8 @@ package com.example.esp32_diagtool.fragments
 
 import android.content.res.ColorStateList
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -13,7 +15,11 @@ import androidx.fragment.app.activityViewModels
 import com.example.esp32_diagtool.MainViewModel
 import com.example.esp32_diagtool.R
 import com.example.esp32_diagtool.databinding.FragmentIoBinding
-import com.example.esp32_diagtool.views.PinHistoryGraphView
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
 
 class IoFragment : Fragment() {
 
@@ -42,14 +48,15 @@ class IoFragment : Fragment() {
     )
 
     private val graphPinOrder = listOf(
-        "GPIO4", "GPIO3", "GPIO2", "GPIO1",
-        "GPIO0", "GPIO21", "GPIO20", "GPIO10",
-        "5V", "GND", "3.3V", "GPIO9",
-        "GPIO8", "GPIO7", "GPIO6", "GPIO5"
+        "GPIO5", "GPIO9", "5V", "GPIO3",
+        "GPIO6", "GPIO10", "GND", "GPIO2",
+        "GPIO7", "GPIO20", "3.3V", "GPIO1",
+        "GPIO8", "GPIO21", "GPIO4", "GPIO0"
     )
 
-    private val pinGraphViews = mutableMapOf<String, PinHistoryGraphView>()
+    private val pinGraphViews = mutableMapOf<String, LineChart>()
     private val pinHistories = mutableMapOf<String, ArrayDeque<Boolean>>()
+    private val pinChartIndices = mutableMapOf<String, Int>()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -93,8 +100,10 @@ class IoFragment : Fragment() {
 
     private fun initializeHistoryBuffers() {
         pinHistories.clear()
+        pinChartIndices.clear()
         graphPinOrder.forEach { pinName ->
             pinHistories[pinName] = ArrayDeque(HISTORY_SIZE)
+            pinChartIndices[pinName] = 0
         }
     }
 
@@ -110,10 +119,65 @@ class IoFragment : Fragment() {
                 false
             )
             itemView.findViewById<TextView>(R.id.tvPinName).text = pinName
-            val graphView = itemView.findViewById<PinHistoryGraphView>(R.id.pinHistoryGraph)
-            pinGraphViews[pinName] = graphView
+            val chart = itemView.findViewById<LineChart>(R.id.pinLineChart)
+            configureLineChart(chart, pinName)
+            pinGraphViews[pinName] = chart
             currentBinding.pinGraphsGrid.addView(itemView)
         }
+    }
+
+    private fun configureLineChart(chart: LineChart, pinName: String) {
+        chart.apply {
+            description.isEnabled = false
+            setTouchEnabled(false)
+            setDrawGridBackground(false)
+            setBackgroundColor(Color.TRANSPARENT)
+
+            xAxis.apply {
+                textColor = Color.parseColor("#80FFFFFF")
+                position = XAxis.XAxisPosition.BOTTOM
+                setDrawGridLines(false)
+                setDrawAxisLine(false)
+            }
+
+            axisLeft.apply {
+                textColor = Color.parseColor("#80FFFFFF")
+                setDrawGridLines(false)
+                setDrawAxisLine(false)
+                axisMinimum = -0.2f
+                axisMaximum = 1.2f
+                setLabelCount(2, false)
+                valueFormatter = object : com.github.mikephil.charting.formatter.ValueFormatter() {
+                    override fun getFormattedValue(value: Float): String {
+                        return if (value < 0.5f) "0" else "1"
+                    }
+                }
+            }
+
+            axisRight.isEnabled = false
+            legend.isEnabled = false
+        }
+
+        val dataSet = LineDataSet(mutableListOf(), pinName).apply {
+            color = Color.parseColor("#FF6B6B")
+            lineWidth = 2f
+            setDrawValues(false)
+            setDrawCircles(false)
+            mode = LineDataSet.Mode.STEPPED
+            setDrawFilled(false)
+            setDrawHorizontalHighlightIndicator(false)
+            setDrawVerticalHighlightIndicator(false)
+        }
+
+        chart.data = LineData(dataSet)
+    }
+
+    private fun adjustAlpha(color: Int, factor: Float): Int {
+        val alpha = Math.round(Color.alpha(color) * factor)
+        val red = Color.red(color)
+        val green = Color.green(color)
+        val blue = Color.blue(color)
+        return Color.argb(alpha, red, green, blue)
     }
 
     private fun updateGraphHistory(states: Map<String, Boolean>) {
@@ -126,7 +190,7 @@ class IoFragment : Fragment() {
         graphPinOrder.forEach { pinName ->
             val isHigh = fullState[pinName] == true
             appendHistorySample(pinName, isHigh)
-            pinGraphViews[pinName]?.setHistory(pinHistories[pinName].orEmpty().toList())
+            updateChart(pinName)
         }
     }
 
@@ -136,6 +200,30 @@ class IoFragment : Fragment() {
             history.removeFirst()
         }
         history.addLast(isHigh)
+    }
+
+    private fun updateChart(pinName: String) {
+        val chart = pinGraphViews[pinName] ?: return
+        val history = pinHistories[pinName] ?: return
+        
+        val entries = mutableListOf<Entry>()
+        val colors = mutableListOf<Int>()
+        
+        val redColor = Color.parseColor("#FF6B6B")
+        val grayColor = Color.parseColor("#808080")
+
+        history.forEachIndexed { index, value ->
+            entries.add(Entry(index.toFloat(), if (value) 1f else 0f))
+            colors.add(if (value) redColor else grayColor)
+        }
+
+        val dataSet = chart.data.getDataSetByIndex(0) as LineDataSet
+        dataSet.values = entries
+        dataSet.setColors(colors)
+        
+        chart.data.notifyDataChanged()
+        chart.notifyDataSetChanged()
+        chart.invalidate()
     }
 
     private fun updateDynamicPins(states: Map<String, Boolean>) {

@@ -14,5 +14,9 @@ data class GpioPacket(
     val gpio8: Int,
     val gpio7: Int,
     val gpio6: Int,
-    val gpio5: Int
+    val gpio5: Int,
+    val thermistorIsConnected: Int,
+    val i2cInaIsConnected: Int,
+    val i2cRtcIsConnected: Int,
+    val i2cGyroIsConnected: Int
 )

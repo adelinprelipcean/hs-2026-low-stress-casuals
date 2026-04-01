@@ -38,6 +38,19 @@
             android:text="Seq: --"
             android:textColor="#80FFFFFF"
             android:textAppearance="@style/TextAppearance.Material3.LabelSmall" />
+
+        <Button
+            android:id="@+id/btnRecenter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="0dp"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="6dp"
+            android:text="@string/recenter_model"
+            android:textAllCaps="false" />
     </LinearLayout>
 
 </FrameLayout>

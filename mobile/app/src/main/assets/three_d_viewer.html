@@ -96,6 +96,8 @@
       const btnResetCam = document.getElementById('resetCam');
 
       const scene = new THREE.Scene();
+      const worldRoot = new THREE.Group();
+      scene.add(worldRoot);
       const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
       camera.position.set(0, 0, 2.8);
       camera.lookAt(0, 0, 0);
@@ -110,26 +112,29 @@
       controls.dampingFactor = 0.08;
       controls.minDistance = 0.35;
       controls.maxDistance = 8;
-      controls.enablePan = true;
-      controls.panSpeed = 0.7;
+      controls.enablePan = false;
       controls.zoomSpeed = 1.0;
+      if (THREE.TOUCH) {
+        controls.touches.ONE = THREE.TOUCH.ROTATE;
+        controls.touches.TWO = THREE.TOUCH.DOLLY_ROTATE;
+      }
       controls.target.set(0, 0, 0);
       controls.update();
 
       const hemi = new THREE.HemisphereLight(0xffffff, 0x30353d, 0.9);
       hemi.position.set(0, 1, 0);
-      scene.add(hemi);
+      worldRoot.add(hemi);
 
       const key = new THREE.DirectionalLight(0xfff4de, 1.25);
       key.position.set(2, 3, 2);
-      scene.add(key);
+      worldRoot.add(key);
 
       const fill = new THREE.DirectionalLight(0xdce8ff, 0.45);
       fill.position.set(-2, 1, -1);
-      scene.add(fill);
+      worldRoot.add(fill);
 
       const modelRoot = new THREE.Group();
-      scene.add(modelRoot);
+      worldRoot.add(modelRoot);
 
       // Keep a visible placeholder so blank-screen issues are easier to diagnose.
       const placeholder = new THREE.Mesh(
@@ -225,7 +230,7 @@
         model.rotation.set(0, 0, 0);
         model.scale.set(1, 1, 1);
 
-        const box = computeMeshBounds(model, true);
+        const box = computeMeshBounds(model, false);
         if (!box || box.isEmpty()) {
           return null;
         }
@@ -251,10 +256,20 @@
         // Position must be scaled with the same factor; otherwise large centers move far off-screen.
         model.position.set(-center.x * uniformScale, -center.y * uniformScale, -center.z * uniformScale);
 
-        const fittedBox = computeMeshBounds(model, false);
+        let fittedBox = computeMeshBounds(model, false);
         if (!fittedBox || fittedBox.isEmpty()) {
           return null;
         }
+
+        const fittedCenter = fittedBox.getCenter(new THREE.Vector3());
+        if (fittedCenter.lengthSq() > 1e-10) {
+          model.position.sub(fittedCenter);
+          fittedBox = computeMeshBounds(model, false);
+          if (!fittedBox || fittedBox.isEmpty()) {
+            return null;
+          }
+        }
+
         const sphere = new THREE.Sphere();
         fittedBox.getBoundingSphere(sphere);
         const radius = Math.min(Math.max(sphere.radius, 0.08), 50.0);
@@ -324,7 +339,8 @@
         currentEuler.y += (targetEuler.y - currentEuler.y) * 0.25;
         currentEuler.z += (targetEuler.z - currentEuler.z) * 0.25;
 
-        modelRoot.rotation.copy(currentEuler);
+        worldRoot.rotation.copy(currentEuler);
+        controls.target.set(0, 0, 0);
         controls.update();
         renderer.render(scene, camera);
         requestAnimationFrame(animate);

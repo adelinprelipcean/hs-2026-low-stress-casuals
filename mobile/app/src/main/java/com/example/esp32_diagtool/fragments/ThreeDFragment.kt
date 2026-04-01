@@ -2,6 +2,7 @@ package com.example.esp32_diagtool.fragments
 
 import android.os.Bundle
 import android.util.Log
+import android.view.MotionEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -21,10 +22,17 @@ import com.example.esp32_diagtool.databinding.FragmentThreeDBinding
 import com.example.esp32_diagtool.model.ImuStreamPacket
 import java.util.Locale
 import kotlin.math.atan2
+import kotlin.math.max
 import kotlin.math.sqrt
 
 class ThreeDFragment : Fragment() {
-    private val complementaryAlpha = 0.96f
+    private val gyroLsbPerDps = 131f
+    private val accelCorrectionTimeConstantSec = 0.55f
+    private val defaultSampleDeltaSec = 0.01f
+    private val gyroBiasLearnRate = 0.02f
+    private val stationaryGyroThresholdDps = 1.5f
+    private val accelReliabilityTolerance = 0.12f
+
     private var observedImuCount = 0L
 
     private var _binding: FragmentThreeDBinding? = null
@@ -50,6 +58,7 @@ class ThreeDFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         setupWebView(binding.webView3d)
+        binding.btnRecenter.setOnClickListener { recenterModel() }
 
         viewModel.imuData.observe(viewLifecycleOwner) { packet ->
             observedImuCount++
@@ -62,6 +71,16 @@ class ThreeDFragment : Fragment() {
 
     private fun setupWebView(webView: WebView) {
         Log.e(TAG, "Three.js WebView setup started")
+
+        webView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_MOVE -> view.parent?.requestDisallowInterceptTouchEvent(true)
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        }
 
         assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(requireContext()))
@@ -111,6 +130,13 @@ class ThreeDFragment : Fragment() {
     private var currentRotY = 0f
     private var currentRotZ = 0f
     private var lastSampleMicros: Long? = null
+    private var accelNormBaseline: Float? = null
+    private var gyroBiasXDps = 0f
+    private var gyroBiasYDps = 0f
+    private var gyroBiasZDps = 0f
+    private var recenterOffsetX = 0f
+    private var recenterOffsetY = 0f
+    private var recenterOffsetZ = 0f
 
     private fun normalizeAngleDeg(angle: Float): Float {
         var normalized = angle % 360f
@@ -119,18 +145,79 @@ class ThreeDFragment : Fragment() {
         return normalized
     }
 
+    private fun computeDeltaSec(sampleMicros: Long): Float {
+        val previous = lastSampleMicros
+        if (previous == null) {
+            lastSampleMicros = sampleMicros
+            return defaultSampleDeltaSec
+        }
+
+        var deltaMicros = sampleMicros - previous
+        if (deltaMicros <= 0L) {
+            val wrappedDelta = sampleMicros + (1L shl 32) - previous
+            deltaMicros = if (wrappedDelta > 0L) wrappedDelta else 0L
+        }
+
+        lastSampleMicros = sampleMicros
+
+        if (deltaMicros <= 0L) return defaultSampleDeltaSec
+        val clampedMicros = deltaMicros.coerceIn(1L, 250_000L)
+        return clampedMicros.toFloat() / 1_000_000f
+    }
+
+    private fun recenterModel() {
+        recenterOffsetX = currentRotX
+        recenterOffsetY = currentRotY
+        recenterOffsetZ = currentRotZ
+
+        pendingRotX = 0f
+        pendingRotY = 0f
+        pendingRotZ = 0f
+        pushRotationToWebView(0f, 0f, 0f)
+        binding.axisGizmo.setEulerRotation(0f, 0f, 0f)
+    }
+
     private fun onImuDataReceived(packet: ImuStreamPacket) {
-        // Integrate gyro first, then use accel tilt as a slow correction to reduce drift.
-        currentRotX = normalizeAngleDeg(currentRotX + packet.gyroX / 500f)
-        currentRotY = normalizeAngleDeg(currentRotY + packet.gyroY / 500f)
-        currentRotZ = normalizeAngleDeg(currentRotZ + packet.gyroZ / 500f)
+        val dtSec = computeDeltaSec(packet.sampleMicros)
+
+        val rawGyroXDps = packet.gyroX / gyroLsbPerDps
+        val rawGyroYDps = packet.gyroY / gyroLsbPerDps
+        val rawGyroZDps = packet.gyroZ / gyroLsbPerDps
 
         val accelX = packet.accelX.toFloat()
         val accelY = packet.accelY.toFloat()
         val accelZ = packet.accelZ.toFloat()
         val accelMagnitude = sqrt(accelX * accelX + accelY * accelY + accelZ * accelZ)
+        val baseline = accelNormBaseline
+        val updatedBaseline = when {
+            baseline == null -> accelMagnitude
+            else -> baseline * 0.995f + accelMagnitude * 0.005f
+        }
+        accelNormBaseline = updatedBaseline
+        val accelMagnitudeRatio = if (updatedBaseline > 1e-3f) {
+            accelMagnitude / updatedBaseline
+        } else {
+            1f
+        }
+        val accelReliable = kotlin.math.abs(accelMagnitudeRatio - 1f) <= accelReliabilityTolerance
 
-        if (accelMagnitude > 1e-3f) {
+        val gyroMagnitudeDps = sqrt(
+            rawGyroXDps * rawGyroXDps +
+                rawGyroYDps * rawGyroYDps +
+                rawGyroZDps * rawGyroZDps
+        )
+        if (accelReliable && gyroMagnitudeDps < stationaryGyroThresholdDps) {
+            gyroBiasXDps += gyroBiasLearnRate * (rawGyroXDps - gyroBiasXDps)
+            gyroBiasYDps += gyroBiasLearnRate * (rawGyroYDps - gyroBiasYDps)
+            gyroBiasZDps += gyroBiasLearnRate * (rawGyroZDps - gyroBiasZDps)
+        }
+
+        // Integrate gyro rate with sample timing; this avoids drift from variable packet cadence.
+        currentRotX = normalizeAngleDeg(currentRotX + (rawGyroXDps - gyroBiasXDps) * dtSec)
+        currentRotY = normalizeAngleDeg(currentRotY + (rawGyroYDps - gyroBiasYDps) * dtSec)
+        currentRotZ = normalizeAngleDeg(currentRotZ + (rawGyroZDps - gyroBiasZDps) * dtSec)
+
+        if (accelMagnitude > 1e-3f && accelReliable) {
             val accelAngleX = Math.toDegrees(atan2(accelY.toDouble(), accelZ.toDouble())).toFloat()
             val accelAngleY = Math.toDegrees(
                 atan2(
@@ -139,23 +226,20 @@ class ThreeDFragment : Fragment() {
                 )
             ).toFloat()
 
-            val hasSampleDelta = lastSampleMicros?.let { packet.sampleMicros > it } ?: false
-            if (hasSampleDelta) {
-                currentRotX = normalizeAngleDeg(
-                    complementaryAlpha * currentRotX + (1f - complementaryAlpha) * accelAngleX
-                )
-                currentRotY = normalizeAngleDeg(
-                    complementaryAlpha * currentRotY + (1f - complementaryAlpha) * accelAngleY
-                )
-            }
+            val alpha = accelCorrectionTimeConstantSec / (accelCorrectionTimeConstantSec + max(dtSec, 1e-4f))
+            currentRotX = normalizeAngleDeg(alpha * currentRotX + (1f - alpha) * accelAngleX)
+            currentRotY = normalizeAngleDeg(alpha * currentRotY + (1f - alpha) * accelAngleY)
         }
 
-        lastSampleMicros = packet.sampleMicros
-        pendingRotX = currentRotX
-        pendingRotY = currentRotY
-        pendingRotZ = currentRotZ
-        pushRotationToWebView(currentRotY, currentRotZ, currentRotX)
-        binding.axisGizmo.setEulerRotation(currentRotY, currentRotZ, currentRotX)
+        val viewRotX = normalizeAngleDeg(currentRotX - recenterOffsetX)
+        val viewRotY = normalizeAngleDeg(currentRotY - recenterOffsetY)
+        val viewRotZ = normalizeAngleDeg(currentRotZ - recenterOffsetZ)
+
+        pendingRotX = viewRotX
+        pendingRotY = viewRotY
+        pendingRotZ = viewRotZ
+        pushRotationToWebView(viewRotX, viewRotY, viewRotZ)
+        binding.axisGizmo.setEulerRotation(viewRotX, viewRotY, viewRotZ)
 
         binding.tvImuStatus.text = String.format(
             Locale.getDefault(),

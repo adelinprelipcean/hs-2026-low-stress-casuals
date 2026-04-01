@@ -505,8 +505,7 @@ void sendPinsToWebSocket() {
   pkt.gpio7 = readDigitalAsBinary(7);
   pkt.gpio6 = readDigitalAsBinary(6);
   pkt.gpio5 = readDigitalAsBinary(5);
-  float thermistorResistance = ntcResistanceFromAdc(g_rawAIN1);
-  pkt.is_thermistor_connected = std::isinf(thermistorResistance) ? 0 : 1;
+  pkt.is_thermistor_connected = readDigitalAsBinary(5);
 
   pkt.i2c_rtc_is_connected = i2cAddressResponds(RTC_I2C_ADDR);
   pkt.i2c_gyroscope_is_connected =

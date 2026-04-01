@@ -34,7 +34,7 @@ class SocketManager(
         private const val IMU_PACKET_SIZE_BYTES = 1 + IMU_PAYLOAD_SIZE_BYTES
         private const val TELEMETRY_PAYLOAD_SIZE_BYTES = 21
         private const val TELEMETRY_PACKET_SIZE_BYTES = 1 + TELEMETRY_PAYLOAD_SIZE_BYTES
-        private const val GPIO_PAYLOAD_SIZE_BYTES = 13
+        private const val GPIO_PAYLOAD_SIZE_BYTES = 17
         private const val GPIO_PACKET_SIZE_BYTES = 1 + GPIO_PAYLOAD_SIZE_BYTES
         private const val CONNECT_TIMEOUT_MS = 5000
         private const val RECONNECT_DELAY_MS = 1500L
@@ -282,13 +282,17 @@ class SocketManager(
                             gpio8 = bb.get().toInt() and 0xFF,
                             gpio7 = bb.get().toInt() and 0xFF,
                             gpio6 = bb.get().toInt() and 0xFF,
-                            gpio5 = bb.get().toInt() and 0xFF
+                            gpio5 = bb.get().toInt() and 0xFF,
+                            thermistorIsConnected = bb.get().toInt() and 0xFF,
+                            i2cInaIsConnected = bb.get().toInt() and 0xFF,
+                            i2cRtcIsConnected = bb.get().toInt() and 0xFF,
+                            i2cGyroIsConnected = bb.get().toInt() and 0xFF
                         )
                         gpioPacketCount++
                         if (gpioPacketCount <= 3L || gpioPacketCount % 50L == 0L) {
                             Log.d(
                                 TAG,
-                                "GPIO #$gpioPacketCount g4=${packet.gpio4} g3=${packet.gpio3} g2=${packet.gpio2} g1=${packet.gpio1} g0=${packet.gpio0} g21=${packet.gpio21} g20=${packet.gpio20} g10=${packet.gpio10} g9=${packet.gpio9} g8=${packet.gpio8} g7=${packet.gpio7} g6=${packet.gpio6} g5=${packet.gpio5}"
+                                "GPIO #$gpioPacketCount g4=${packet.gpio4} g3=${packet.gpio3} g2=${packet.gpio2} g1=${packet.gpio1} g0=${packet.gpio0} g21=${packet.gpio21} g20=${packet.gpio20} g10=${packet.gpio10} g9=${packet.gpio9} g8=${packet.gpio8} g7=${packet.gpio7} g6=${packet.gpio6} g5=${packet.gpio5} therm=${packet.thermistorIsConnected} ina=${packet.i2cInaIsConnected} rtc=${packet.i2cRtcIsConnected} gyro=${packet.i2cGyroIsConnected}"
                             )
                         }
                         onGpioDataReceived(packet)

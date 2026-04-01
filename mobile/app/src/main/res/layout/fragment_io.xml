@@ -25,12 +25,12 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="269dp"
             android:layout_marginTop="12dp"
-            android:orientation="horizontal"
-            android:gravity="center"
             android:baselineAligned="false"
-            android:weightSum="3">
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:weightSum="5">
 
             <LinearLayout
                 android:id="@+id/leftPinsColumn"
@@ -42,19 +42,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO4"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO5"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio4"
+                        android:id="@+id/indicatorGpio5"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -64,19 +64,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO3"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO6"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio3"
+                        android:id="@+id/indicatorGpio6"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -86,19 +86,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO2"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO7"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio2"
+                        android:id="@+id/indicatorGpio7"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -108,19 +108,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO1"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO8"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio1"
+                        android:id="@+id/indicatorGpio8"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -130,19 +130,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO0"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO9"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio0"
+                        android:id="@+id/indicatorGpio9"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -152,19 +152,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO21"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO10"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio21"
+                        android:id="@+id/indicatorGpio10"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -174,16 +174,16 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="GPIO20"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
                         android:id="@+id/indicatorGpio20"
@@ -196,19 +196,19 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="end|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="GPIO10"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO21"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
 
                     <View
-                        android:id="@+id/indicatorGpio10"
+                        android:id="@+id/indicatorGpio21"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:layout_marginStart="8dp"
@@ -220,10 +220,9 @@
                 android:id="@+id/ivBoard"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:layout_weight="2.7"
                 android:adjustViewBounds="true"
                 android:contentDescription="@string/io_board_image_desc"
-                android:maxWidth="180dp"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"
                 android:scaleType="fitCenter" />
@@ -238,8 +237,8 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
@@ -253,15 +252,15 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:text="5V"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
@@ -275,15 +274,15 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:text="GND"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
@@ -297,19 +296,19 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:text="3.3V"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
-                        android:id="@+id/indicatorGpio9"
+                        android:id="@+id/indicatorGpio4"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:background="@drawable/pin_indicator_circle" />
@@ -318,20 +317,20 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="GPIO9"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO4"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
-                        android:id="@+id/indicatorGpio8"
+                        android:id="@+id/indicatorGpio3"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:background="@drawable/pin_indicator_circle" />
@@ -340,20 +339,20 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="GPIO8"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO3"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
-                        android:id="@+id/indicatorGpio7"
+                        android:id="@+id/indicatorGpio2"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:background="@drawable/pin_indicator_circle" />
@@ -362,20 +361,20 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="GPIO7"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO2"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
-                        android:id="@+id/indicatorGpio6"
+                        android:id="@+id/indicatorGpio1"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:background="@drawable/pin_indicator_circle" />
@@ -384,20 +383,20 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="GPIO6"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO1"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
                     android:gravity="start|center_vertical"
+                    android:orientation="horizontal"
                     android:paddingVertical="4dp">
 
                     <View
-                        android:id="@+id/indicatorGpio5"
+                        android:id="@+id/indicatorGpio0"
                         android:layout_width="12dp"
                         android:layout_height="12dp"
                         android:background="@drawable/pin_indicator_circle" />
@@ -406,9 +405,9 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="GPIO5"
-                        android:textColor="@color/white"
-                        android:textAppearance="@style/TextAppearance.Material3.BodySmall" />
+                        android:text="GPIO0"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/white" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
@@ -427,8 +426,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:columnCount="4"
-            android:rowCount="4"
+            android:columnCount="2"
+            android:rowCount="8"
             android:alignmentMode="alignMargins"
             android:useDefaultMargins="false" />
     </LinearLayout>

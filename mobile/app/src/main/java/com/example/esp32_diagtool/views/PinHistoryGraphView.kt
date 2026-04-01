@@ -30,8 +30,8 @@ class PinHistoryGraphView @JvmOverloads constructor(
 
     private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f
-        color = Color.argb(90, 255, 255, 255)
+        strokeWidth = 0.1f
+        color = Color.argb(20, 255, 255, 255)
     }
 
     fun setHistory(samples: List<Boolean>) {

@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var mockSequence = 0L
     private var mockStartMs = 0L
     private var useMockData = false
+    private val sensorConnectionState = mutableMapOf<String, Boolean>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,6 +134,7 @@ class MainActivity : AppCompatActivity() {
                         "GPIO callback #$gpioCallbackCount ${packet.toLogSummary()}"
                     )
                 }
+                handleSensorConnectionChanges(packet)
                 viewModel.updateGpioStates(packet)
             },
             onConnectionChanged = { connected ->
@@ -226,7 +228,11 @@ class MainActivity : AppCompatActivity() {
                     gpio8 = squareBit(t, 11),
                     gpio7 = squareBit(t, 12),
                     gpio6 = squareBit(t, 13),
-                    gpio5 = squareBit(t, 14)
+                    gpio5 = squareBit(t, 14),
+                    thermistorIsConnected = 1,
+                    i2cInaIsConnected = 1,
+                    i2cRtcIsConnected = 1,
+                    i2cGyroIsConnected = 1
                 )
                 viewModel.updateGpioStates(gpioPacket)
 
@@ -278,6 +284,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun GpioPacket.toLogSummary(): String {
-        return "g4=$gpio4 g3=$gpio3 g2=$gpio2 g1=$gpio1 g0=$gpio0 g21=$gpio21 g20=$gpio20 g10=$gpio10 g9=$gpio9 g8=$gpio8 g7=$gpio7 g6=$gpio6 g5=$gpio5"
+        return "g4=$gpio4 g3=$gpio3 g2=$gpio2 g1=$gpio1 g0=$gpio0 g21=$gpio21 g20=$gpio20 g10=$gpio10 g9=$gpio9 g8=$gpio8 g7=$gpio7 g6=$gpio6 g5=$gpio5 therm=$thermistorIsConnected ina=$i2cInaIsConnected rtc=$i2cRtcIsConnected gyro=$i2cGyroIsConnected"
     }
+
+    private fun handleSensorConnectionChanges(packet: GpioPacket) {
+        val current = mapOf(
+            "Thermistor" to packet.thermistorIsConnected.isConnectedFlag(),
+            "INA" to packet.i2cInaIsConnected.isConnectedFlag(),
+            "RTC" to packet.i2cRtcIsConnected.isConnectedFlag(),
+            "Gyro" to packet.i2cGyroIsConnected.isConnectedFlag()
+        )
+
+        current.forEach { (sensorName, isConnected) ->
+            val previous = sensorConnectionState[sensorName]
+            sensorConnectionState[sensorName] = isConnected
+
+            if (previous != null && previous != isConnected) {
+                val message = if (isConnected) {
+                    "$sensorName sensor connected"
+                } else {
+                    "$sensorName sensor disconnected"
+                }
+
+                runOnUiThread {
+                    Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun Int.isConnectedFlag(): Boolean = this != 0
 }

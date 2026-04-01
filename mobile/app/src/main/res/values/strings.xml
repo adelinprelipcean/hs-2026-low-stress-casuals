@@ -42,4 +42,5 @@
     <string name="io_board_image_desc">ESP32-C3 Mini board image</string>
     <string name="imu_data_waiting">IMU Data: Waiting...</string>
     <string name="imu_sequence_format">Seq: %d</string>
+    <string name="recenter_model">Recenter</string>
 </resources>
