@@ -33,6 +33,13 @@
     <string name="title_visualizer">3D Visualizer</string>
     <string name="tab_3d_model">3D Model</string>
     <string name="tab_esp_data">ESP Data</string>
+    <string name="tab_io">I/O</string>
+    <string name="use_mock_data">Use Mock Data</string>
+    <string name="mode_mock_enabled">Mock data enabled</string>
+    <string name="mode_socket_enabled">Real socket enabled</string>
+    <string name="io_pin_status">ESP32-C3 Mini I/O Pins</string>
+    <string name="io_pin_history">Pin History</string>
+    <string name="io_board_image_desc">ESP32-C3 Mini board image</string>
     <string name="imu_data_waiting">IMU Data: Waiting...</string>
     <string name="imu_sequence_format">Seq: %d</string>
 </resources>

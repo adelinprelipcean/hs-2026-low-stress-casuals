@@ -1,30 +1,29 @@
 package com.example.esp32_diagtool.fragments
 
-import android.opengl.Matrix
 import android.os.Bundle
 import android.util.Log
-import android.view.Choreographer
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.example.esp32_diagtool.MainViewModel
 import com.example.esp32_diagtool.databinding.FragmentThreeDBinding
 import com.example.esp32_diagtool.model.ImuStreamPacket
-import com.google.android.filament.EntityManager
-import com.google.android.filament.LightManager
-import com.google.android.filament.Skybox
-import com.google.android.filament.gltfio.FilamentAsset
-import com.google.android.filament.utils.ModelViewer
-import com.google.android.filament.utils.Utils
-import java.nio.ByteBuffer
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
 class ThreeDFragment : Fragment() {
-    private val modelScaleFactor = 1.0f
     private val complementaryAlpha = 0.96f
     private var observedImuCount = 0L
 
@@ -32,22 +31,11 @@ class ThreeDFragment : Fragment() {
     private val binding get() = _binding!!
     private val viewModel: MainViewModel by activityViewModels()
 
-    private lateinit var choreographer: Choreographer
-    private lateinit var modelViewer: ModelViewer
-    private val transformMatrix = FloatArray(16)
-    private val pivotedBaseMatrix = FloatArray(16)
-    private val composedTransformMatrix = FloatArray(16)
-    private val baseTransformMatrix = FloatArray(16)
-    private val pivotPreTranslateMatrix = FloatArray(16)
-    private val pivotPostTranslateMatrix = FloatArray(16)
-    private val pivotRotationMatrix = FloatArray(16)
-    private val pivotCenterLocal = FloatArray(4)
-    private val pivotCenterWorld = FloatArray(4)
-    private var isBaseTransformInitialized = false
-    private var isPivotInitialized = false
-    private var mainLightEntity: Int = 0
-    private var backgroundSkybox: Skybox? = null
-    private var isRenderLoopRunning = false
+    private var isWebViewerReady = false
+    private var pendingRotX = 0f
+    private var pendingRotY = 0f
+    private var pendingRotZ = 0f
+    private lateinit var assetLoader: WebViewAssetLoader
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -61,7 +49,7 @@ class ThreeDFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        setupFilament()
+        setupWebView(binding.webView3d)
 
         viewModel.imuData.observe(viewLifecycleOwner) { packet ->
             observedImuCount++
@@ -72,103 +60,51 @@ class ThreeDFragment : Fragment() {
         }
     }
 
-    private fun setupFilament() {
-        choreographer = Choreographer.getInstance()
-        modelViewer = ModelViewer(binding.surfaceView)
+    private fun setupWebView(webView: WebView) {
+        Log.e(TAG, "Three.js WebView setup started")
 
-        backgroundSkybox = Skybox.Builder()
-            .color(0.32f, 0.34f, 0.36f, 1.0f)
-            .build(modelViewer.engine)
-        modelViewer.scene.skybox = backgroundSkybox
+        assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(requireContext()))
+            .build()
 
-        // Load model from assets
-        val buffer = readAsset("esp32.glb")
-        modelViewer.loadModelGlb(buffer)
-        modelViewer.transformToUnitCube()
-        Matrix.setIdentityM(baseTransformMatrix, 0)
-        Matrix.setIdentityM(pivotPreTranslateMatrix, 0)
-        Matrix.setIdentityM(pivotPostTranslateMatrix, 0)
-        Matrix.setIdentityM(pivotRotationMatrix, 0)
-        isBaseTransformInitialized = false
-        isPivotInitialized = false
-        binding.axisGizmo.setEulerRotation(0f, 0f, 0f)
-
-        mainLightEntity = EntityManager.get().create()
-        LightManager.Builder(LightManager.Type.DIRECTIONAL)
-            .color(1.0f, 0.98f, 0.92f)
-            .intensity(60_000.0f)
-            .direction(0.4f, -1.0f, -0.6f)
-            .castShadows(false)
-            .build(modelViewer.engine, mainLightEntity)
-        modelViewer.scene.addEntity(mainLightEntity)
-
-        modelViewer.asset?.let { asset ->
-            val tm = modelViewer.engine.transformManager
-            val instance = tm.getInstance(asset.root)
-            tm.getTransform(instance, baseTransformMatrix)
-            Matrix.scaleM(baseTransformMatrix, 0, modelScaleFactor, modelScaleFactor, modelScaleFactor)
-            tm.setTransform(instance, baseTransformMatrix)
-            isBaseTransformInitialized = true
-
-            initializePivotMatrices(asset)
+        with(webView.settings) {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = true
+            allowContentAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            builtInZoomControls = false
+            displayZoomControls = false
         }
-
-        // Lighting & Loop
-        modelViewer.view.isPostProcessingEnabled = false
-        startRenderLoop()
-    }
-
-    private fun startRenderLoop() {
-        if (!isRenderLoopRunning) {
-            isRenderLoopRunning = true
-            choreographer.postFrameCallback(frameCallback)
+        webView.setBackgroundColor(0x00000000)
+        webView.isVerticalScrollBarEnabled = false
+        webView.isHorizontalScrollBarEnabled = false
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                Log.e(
+                    TAG,
+                    "WV ${consoleMessage.messageLevel()}: ${consoleMessage.message()} @${consoleMessage.lineNumber()}"
+                )
+                return true
+            }
         }
-    }
-
-    private fun stopRenderLoop() {
-        if (isRenderLoopRunning) {
-            choreographer.removeFrameCallback(frameCallback)
-            isRenderLoopRunning = false
-        }
-    }
-
-    private fun initializePivotMatrices(asset: FilamentAsset) {
-        val pivotCenter = asset.boundingBox.center
-        pivotCenterLocal[0] = pivotCenter[0]
-        pivotCenterLocal[1] = pivotCenter[1]
-        pivotCenterLocal[2] = pivotCenter[2]
-        pivotCenterLocal[3] = 1f
-
-        Matrix.multiplyMV(pivotCenterWorld, 0, baseTransformMatrix, 0, pivotCenterLocal, 0)
-        val pivotX = pivotCenterWorld[0]
-        val pivotY = pivotCenterWorld[1]
-        val pivotZ = pivotCenterWorld[2]
-
-        Matrix.setIdentityM(pivotPreTranslateMatrix, 0)
-        Matrix.translateM(pivotPreTranslateMatrix, 0, pivotX, pivotY, pivotZ)
-        Matrix.setIdentityM(pivotPostTranslateMatrix, 0)
-        Matrix.translateM(pivotPostTranslateMatrix, 0, -pivotX, -pivotY, -pivotZ)
-        isPivotInitialized = true
-    }
-
-    private val frameCallback = object : Choreographer.FrameCallback {
-        override fun doFrame(frameTimeNanos: Long) {
-            if (!isRenderLoopRunning || _binding == null) {
-                return
+        webView.webViewClient = object : WebViewClientCompat() {
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? {
+                return assetLoader.shouldInterceptRequest(request.url)
             }
 
-            choreographer.postFrameCallback(this)
-            modelViewer.render(frameTimeNanos)
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                isWebViewerReady = true
+                Log.e(TAG, "Three.js viewer ready: $url")
+                pushRotationToWebView(pendingRotX, pendingRotY, pendingRotZ)
+            }
         }
-    }
-
-    private fun readAsset(assetName: String): ByteBuffer {
-        val input = requireContext().assets.open(assetName)
-        val bytes = input.readBytes()
-        return ByteBuffer.allocateDirect(bytes.size).apply {
-            put(bytes)
-            flip()
-        }
+        webView.loadUrl("https://appassets.androidplatform.net/assets/three_d_viewer.html")
+        binding.axisGizmo.setEulerRotation(0f, 0f, 0f)
     }
 
     private var currentRotX = 0f
@@ -215,35 +151,11 @@ class ThreeDFragment : Fragment() {
         }
 
         lastSampleMicros = packet.sampleMicros
-        binding.axisGizmo.setEulerRotation(currentRotX, currentRotY, currentRotZ)
-
-        modelViewer.asset?.let { asset ->
-            val tm = modelViewer.engine.transformManager
-            val entity = asset.root
-            val instance = tm.getInstance(entity)
-
-            if (!isBaseTransformInitialized) {
-                tm.getTransform(instance, baseTransformMatrix)
-                Matrix.scaleM(baseTransformMatrix, 0, modelScaleFactor, modelScaleFactor, modelScaleFactor)
-                tm.setTransform(instance, baseTransformMatrix)
-                isBaseTransformInitialized = true
-            }
-            if (!isPivotInitialized) {
-                initializePivotMatrices(asset)
-            }
-            
-            Matrix.setIdentityM(transformMatrix, 0)
-            Matrix.rotateM(transformMatrix, 0, -currentRotY, 1f, 0f, 0f)
-            Matrix.rotateM(transformMatrix, 0, currentRotZ, 0f, 1f, 0f)
-            Matrix.rotateM(transformMatrix, 0, -currentRotX, 0f, 0f, 1f)
-
-            // Rotate around model center in world space: T(center) * R * T(-center) * Base
-            Matrix.multiplyMM(pivotedBaseMatrix, 0, pivotPostTranslateMatrix, 0, baseTransformMatrix, 0)
-            Matrix.multiplyMM(pivotRotationMatrix, 0, transformMatrix, 0, pivotedBaseMatrix, 0)
-            Matrix.multiplyMM(composedTransformMatrix, 0, pivotPreTranslateMatrix, 0, pivotRotationMatrix, 0)
-            
-            tm.setTransform(instance, composedTransformMatrix)
-        }
+        pendingRotX = currentRotX
+        pendingRotY = currentRotY
+        pendingRotZ = currentRotZ
+        pushRotationToWebView(currentRotY, currentRotZ, currentRotX)
+        binding.axisGizmo.setEulerRotation(currentRotY, currentRotZ, currentRotX)
 
         binding.tvImuStatus.text = String.format(
             Locale.getDefault(),
@@ -254,37 +166,37 @@ class ThreeDFragment : Fragment() {
         binding.tvSequence.text = "Seq: ${packet.sequence}"
     }
 
+    private fun pushRotationToWebView(rotX: Float, rotY: Float, rotZ: Float) {
+        if (!isWebViewerReady || _binding == null) return
+        val js = "window.updateImuRotation(${rotX.toJsNumber()}, ${rotY.toJsNumber()}, ${rotZ.toJsNumber()});"
+        binding.webView3d.evaluateJavascript(js, null)
+    }
+
+    private fun Float.toJsNumber(): String = String.format(Locale.US, "%.5f", this)
+
     override fun onResume() {
         super.onResume()
-        startRenderLoop()
+        _binding?.webView3d?.onResume()
     }
 
     override fun onPause() {
         super.onPause()
-        stopRenderLoop()
+        _binding?.webView3d?.onPause()
     }
 
     override fun onDestroyView() {
-        stopRenderLoop()
-        backgroundSkybox?.let {
-            modelViewer.scene.skybox = null
-            modelViewer.engine.destroySkybox(it)
-            backgroundSkybox = null
+        binding.webView3d.apply {
+            stopLoading()
+            loadUrl("about:blank")
+            webViewClient = WebViewClient()
+            destroy()
         }
-        if (mainLightEntity != 0) {
-            modelViewer.scene.removeEntity(mainLightEntity)
-            modelViewer.engine.destroyEntity(mainLightEntity)
-            EntityManager.get().destroy(mainLightEntity)
-            mainLightEntity = 0
-        }
+        isWebViewerReady = false
         super.onDestroyView()
         _binding = null
     }
 
     companion object {
-        init {
-            Utils.init()
-        }
         private const val TAG = "ThreeDFragment"
     }
 }

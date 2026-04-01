@@ -1,0 +1,13 @@
+{
+    "name": "logic_analyzer_c3",
+    "version": "1.0.0",
+    "description": "ESP32-C3 Logic Analyzer with SUMP/PulseView support (4-channel, GPSPI2+DMA)",
+    "frameworks": "arduino",
+    "platforms": "espressif32",
+    "build": {
+        "flags": [
+            "-Iinclude",
+            "-Iprivate_include"
+        ]
+    }
+}

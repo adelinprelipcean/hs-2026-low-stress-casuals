@@ -50,6 +50,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)
     implementation(libs.androidx.viewpager2)
+    implementation(libs.androidx.webkit)
     implementation(libs.okhttp)
     
     // Google Filament (Native 3D)

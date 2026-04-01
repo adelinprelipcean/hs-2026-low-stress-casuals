@@ -1,6 +1,7 @@
 package com.example.esp32_diagtool.network
 
 import android.util.Log
+import com.example.esp32_diagtool.model.GpioPacket
 import com.example.esp32_diagtool.model.ImuStreamPacket
 import com.example.esp32_diagtool.model.TelemetryPacket
 import java.nio.charset.StandardCharsets
@@ -18,6 +19,7 @@ import okio.ByteString
 class SocketManager(
     private val onImuDataReceived: (ImuStreamPacket) -> Unit,
     private val onTelemetryDataReceived: (TelemetryPacket) -> Unit,
+    private val onGpioDataReceived: (GpioPacket) -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
 ) {
     companion object {
@@ -27,10 +29,13 @@ class SocketManager(
         private const val WS_PATH = "/"
         private const val IMU_PACKET_HEADER = 0xA1
         private const val TELEMETRY_PACKET_HEADER = 0xD4
+        private const val GPIO_PACKET_HEADER = 0xC1
         private const val IMU_PAYLOAD_SIZE_BYTES = 20
         private const val IMU_PACKET_SIZE_BYTES = 1 + IMU_PAYLOAD_SIZE_BYTES
         private const val TELEMETRY_PAYLOAD_SIZE_BYTES = 21
         private const val TELEMETRY_PACKET_SIZE_BYTES = 1 + TELEMETRY_PAYLOAD_SIZE_BYTES
+        private const val GPIO_PAYLOAD_SIZE_BYTES = 13
+        private const val GPIO_PACKET_SIZE_BYTES = 1 + GPIO_PAYLOAD_SIZE_BYTES
         private const val CONNECT_TIMEOUT_MS = 5000
         private const val RECONNECT_DELAY_MS = 1500L
     }
@@ -55,6 +60,9 @@ class SocketManager(
 
     @Volatile
     private var telemetryPacketCount: Long = 0
+
+    @Volatile
+    private var gpioPacketCount: Long = 0
 
     private var workerThread: Thread? = null
 
@@ -82,6 +90,7 @@ class SocketManager(
                             rawFrameCount = 0
                             imuPacketCount = 0
                             telemetryPacketCount = 0
+                            gpioPacketCount = 0
                             Log.d(TAG, "Connected to $wsUrl")
                             updateConnectionState(true)
                         }
@@ -248,6 +257,42 @@ class SocketManager(
                         }
                         onTelemetryDataReceived(packet)
                         index += TELEMETRY_PACKET_SIZE_BYTES
+                    }
+
+                    GPIO_PACKET_HEADER -> {
+                        if (index + GPIO_PACKET_SIZE_BYTES > merged.size) {
+                            break
+                        }
+
+                        val bb = ByteBuffer
+                            .wrap(merged, index + 1, GPIO_PAYLOAD_SIZE_BYTES)
+                            .order(ByteOrder.LITTLE_ENDIAN)
+
+                        val packet = GpioPacket(
+                            header = GPIO_PACKET_HEADER.toShort(),
+                            gpio4 = bb.get().toInt() and 0xFF,
+                            gpio3 = bb.get().toInt() and 0xFF,
+                            gpio2 = bb.get().toInt() and 0xFF,
+                            gpio1 = bb.get().toInt() and 0xFF,
+                            gpio0 = bb.get().toInt() and 0xFF,
+                            gpio21 = bb.get().toInt() and 0xFF,
+                            gpio20 = bb.get().toInt() and 0xFF,
+                            gpio10 = bb.get().toInt() and 0xFF,
+                            gpio9 = bb.get().toInt() and 0xFF,
+                            gpio8 = bb.get().toInt() and 0xFF,
+                            gpio7 = bb.get().toInt() and 0xFF,
+                            gpio6 = bb.get().toInt() and 0xFF,
+                            gpio5 = bb.get().toInt() and 0xFF
+                        )
+                        gpioPacketCount++
+                        if (gpioPacketCount <= 3L || gpioPacketCount % 50L == 0L) {
+                            Log.d(
+                                TAG,
+                                "GPIO #$gpioPacketCount g4=${packet.gpio4} g3=${packet.gpio3} g2=${packet.gpio2} g1=${packet.gpio1} g0=${packet.gpio0} g21=${packet.gpio21} g20=${packet.gpio20} g10=${packet.gpio10} g9=${packet.gpio9} g8=${packet.gpio8} g7=${packet.gpio7} g6=${packet.gpio6} g5=${packet.gpio5}"
+                            )
+                        }
+                        onGpioDataReceived(packet)
+                        index += GPIO_PACKET_SIZE_BYTES
                     }
 
                     else -> {

@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Three.js IMU Viewer</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at 30% 20%, #2e3338 0%, #181b1f 45%, #0f1114 100%);
+    }
+
+    #app {
+      width: 100%;
+      height: 100%;
+    }
+
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      color: #eaf0f6;
+      font-family: sans-serif;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      padding: 8px 10px;
+      backdrop-filter: blur(2px);
+    }
+
+    #cameraButtons {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+    }
+
+    #cameraButtons button {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 10px;
+      font-size: 22px;
+      color: #eaf0f6;
+      background: rgba(20, 24, 30, 0.82);
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud">Initializing viewer...</div>
+  <div id="cameraButtons">
+    <button id="zoomIn" type="button">+</button>
+    <button id="zoomOut" type="button">-</button>
+    <button id="resetCam" type="button">R</button>
+  </div>
+
+  <script>
+    // Bridge stub is available immediately so Android can call safely before viewer init.
+    window.__imuPending = { x: 0, y: 0, z: 0 };
+    window.updateImuRotation = function (xDeg, yDeg, zDeg) {
+      window.__imuPending.x = Number(xDeg) || 0;
+      window.__imuPending.y = Number(yDeg) || 0;
+      window.__imuPending.z = Number(zDeg) || 0;
+    };
+  </script>
+
+  <script src="https://appassets.androidplatform.net/assets/vendor/three.min.js"></script>
+  <script src="https://appassets.androidplatform.net/assets/vendor/GLTFLoader.js"></script>
+  <script src="https://appassets.androidplatform.net/assets/vendor/OrbitControls.js"></script>
+  <script>
+    (function () {
+      if (!window.THREE || !THREE.GLTFLoader) {
+        console.error('Three.js or GLTFLoader failed to initialize from local assets.');
+        return;
+      }
+
+      const container = document.getElementById('app');
+      const hud = document.getElementById('hud');
+      const btnZoomIn = document.getElementById('zoomIn');
+      const btnZoomOut = document.getElementById('zoomOut');
+      const btnResetCam = document.getElementById('resetCam');
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
+      camera.position.set(0, 0, 2.8);
+      camera.lookAt(0, 0, 0);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      container.appendChild(renderer.domElement);
+
+      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.minDistance = 0.35;
+      controls.maxDistance = 8;
+      controls.enablePan = true;
+      controls.panSpeed = 0.7;
+      controls.zoomSpeed = 1.0;
+      controls.target.set(0, 0, 0);
+      controls.update();
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x30353d, 0.9);
+      hemi.position.set(0, 1, 0);
+      scene.add(hemi);
+
+      const key = new THREE.DirectionalLight(0xfff4de, 1.25);
+      key.position.set(2, 3, 2);
+      scene.add(key);
+
+      const fill = new THREE.DirectionalLight(0xdce8ff, 0.45);
+      fill.position.set(-2, 1, -1);
+      scene.add(fill);
+
+      const modelRoot = new THREE.Group();
+      scene.add(modelRoot);
+
+      // Keep a visible placeholder so blank-screen issues are easier to diagnose.
+      const placeholder = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 0.3, 0.14),
+        new THREE.MeshStandardMaterial({ color: 0x66b2ff, metalness: 0.15, roughness: 0.55 })
+      );
+      modelRoot.add(placeholder);
+
+      const targetEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+      const currentEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+      let activeModel = null;
+      const FORCE_DEBUG_NORMAL_MATERIAL = false;
+
+      function forceVisibleMaterials(root) {
+        let meshCount = 0;
+        root.traverse(function (node) {
+          if (!node.isMesh || !node.material) return;
+          meshCount += 1;
+          node.visible = true;
+          node.frustumCulled = false;
+
+          if (FORCE_DEBUG_NORMAL_MATERIAL) {
+            node.material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide, flatShading: false });
+            return;
+          }
+
+          const mats = Array.isArray(node.material) ? node.material : [node.material];
+          mats.forEach(function (mat) {
+            mat.transparent = false;
+            mat.opacity = 1;
+            mat.side = THREE.DoubleSide;
+            mat.needsUpdate = true;
+          });
+        });
+        return meshCount;
+      }
+
+      function computeMeshBounds(root, rejectOutliers) {
+        root.updateMatrixWorld(true);
+        const tempBox = new THREE.Box3();
+        const meshBoxes = [];
+
+        root.traverse(function (node) {
+          if (!node.isMesh || !node.geometry) return;
+          if (!node.geometry.boundingBox) {
+            node.geometry.computeBoundingBox();
+          }
+          if (!node.geometry.boundingBox) return;
+
+          tempBox.copy(node.geometry.boundingBox).applyMatrix4(node.matrixWorld);
+          if (!tempBox.isEmpty()) {
+            meshBoxes.push(tempBox.clone());
+          }
+        });
+
+        if (meshBoxes.length === 0) {
+          return null;
+        }
+
+        const union = new THREE.Box3();
+        union.makeEmpty();
+        meshBoxes.forEach(function (b) { union.union(b); });
+
+        if (!rejectOutliers || meshBoxes.length < 4) {
+          return union;
+        }
+
+        const globalCenter = union.getCenter(new THREE.Vector3());
+        const globalSize = union.getSize(new THREE.Vector3());
+        const globalDiag = Math.max(globalSize.length(), 1e-4);
+        const accepted = [];
+
+        meshBoxes.forEach(function (b) {
+          const c = b.getCenter(new THREE.Vector3());
+          const dist = c.distanceTo(globalCenter);
+          if (dist <= globalDiag * 0.6) {
+            accepted.push(b);
+          }
+        });
+
+        if (accepted.length === 0) {
+          return union;
+        }
+
+        const trimmed = new THREE.Box3();
+        trimmed.makeEmpty();
+        accepted.forEach(function (b) { trimmed.union(b); });
+        return trimmed;
+      }
+
+      function fitAndCenter(model) {
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+        model.scale.set(1, 1, 1);
+
+        const box = computeMeshBounds(model, true);
+        if (!box || box.isEmpty()) {
+          return null;
+        }
+
+        const size = new THREE.Vector3();
+        const center = new THREE.Vector3();
+        box.getSize(size);
+        box.getCenter(center);
+
+        if (!Number.isFinite(center.x) || !Number.isFinite(center.y) || !Number.isFinite(center.z)) {
+          return null;
+        }
+
+        let uniformScale = 1.0;
+
+        const maxDim = Math.max(size.x, size.y, size.z);
+        if (maxDim > 0.0001) {
+          const clampedMaxDim = Math.min(Math.max(maxDim, 0.0001), 10000.0);
+          uniformScale = 1.0 / clampedMaxDim;
+          model.scale.setScalar(uniformScale);
+        }
+
+        // Position must be scaled with the same factor; otherwise large centers move far off-screen.
+        model.position.set(-center.x * uniformScale, -center.y * uniformScale, -center.z * uniformScale);
+
+        const fittedBox = computeMeshBounds(model, false);
+        if (!fittedBox || fittedBox.isEmpty()) {
+          return null;
+        }
+        const sphere = new THREE.Sphere();
+        fittedBox.getBoundingSphere(sphere);
+        const radius = Math.min(Math.max(sphere.radius, 0.08), 50.0);
+        const dist = radius / Math.sin(THREE.MathUtils.degToRad(camera.fov * 0.5));
+        camera.position.set(0, 0, dist * 1.8);
+        camera.near = Math.max(0.001, dist / 200.0);
+        camera.far = Math.max(50.0, dist * 50.0);
+        camera.updateProjectionMatrix();
+        controls.target.set(0, 0, 0);
+        controls.minDistance = radius * 0.3;
+        controls.maxDistance = radius * 12;
+        controls.update();
+
+        return {
+          radius: radius,
+          maxDim: maxDim,
+          center: center
+        };
+      }
+
+      function loadModel() {
+        hud.textContent = 'Loading model...';
+        const loader = new THREE.GLTFLoader();
+        loader.load(
+          'https://appassets.androidplatform.net/assets/esp32.glb',
+          (gltf) => {
+            const model = gltf.scene;
+            const meshCount = forceVisibleMaterials(model);
+            const fit = fitAndCenter(model);
+            if (!fit) {
+              hud.textContent = 'Model loaded but bounds invalid. meshes=' + meshCount + '. Showing fallback cube.';
+              return;
+            }
+            if (activeModel) {
+              modelRoot.remove(activeModel);
+            }
+            activeModel = model;
+            modelRoot.add(model);
+            modelRoot.remove(placeholder);
+            hud.textContent = 'Model loaded. meshes=' + meshCount + ', Size=' + fit.maxDim.toFixed(4) + ', radius=' + fit.radius.toFixed(4);
+          },
+          undefined,
+          (error) => {
+            console.error('Failed to load model:', error);
+            hud.textContent = 'Model load failed. Showing fallback cube.';
+          }
+        );
+      }
+
+      function onResize() {
+        const width = Math.max(container.clientWidth, 1);
+        const height = Math.max(container.clientHeight, 1);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height, false);
+      }
+
+      function animate() {
+        targetEuler.set(
+          THREE.MathUtils.degToRad(-window.__imuPending.x),
+          THREE.MathUtils.degToRad(window.__imuPending.y),
+          THREE.MathUtils.degToRad(-window.__imuPending.z),
+          'XYZ'
+        );
+
+        currentEuler.x += (targetEuler.x - currentEuler.x) * 0.25;
+        currentEuler.y += (targetEuler.y - currentEuler.y) * 0.25;
+        currentEuler.z += (targetEuler.z - currentEuler.z) * 0.25;
+
+        modelRoot.rotation.copy(currentEuler);
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+
+      if (!renderer.getContext()) {
+        hud.textContent = 'WebGL context unavailable in this WebView.';
+      }
+
+      btnZoomIn.addEventListener('click', function () {
+        camera.position.multiplyScalar(0.9);
+        controls.update();
+      });
+
+      btnZoomOut.addEventListener('click', function () {
+        camera.position.multiplyScalar(1.1);
+        controls.update();
+      });
+
+      btnResetCam.addEventListener('click', function () {
+        camera.position.set(0, 0, 2.8);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      });
+
+      window.updateImuRotation = function (xDeg, yDeg, zDeg) {
+        const x = Number(xDeg) || 0;
+        const y = Number(yDeg) || 0;
+        const z = Number(zDeg) || 0;
+        window.__imuPending.x = x;
+        window.__imuPending.y = y;
+        window.__imuPending.z = z;
+      };
+
+      window.addEventListener('resize', onResize);
+      onResize();
+      loadModel();
+      animate();
+    })();
+  </script>
+</body>
+</html>

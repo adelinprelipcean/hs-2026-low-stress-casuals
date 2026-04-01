@@ -25,4 +25,7 @@
 
     <!-- Complementary blue for values -->
     <color name="value_blue">#B9E3FF</color>
+
+    <color name="pin_low_gray">#7E7E7E</color>
+    <color name="pin_high_red">#E53935</color>
 </resources>
