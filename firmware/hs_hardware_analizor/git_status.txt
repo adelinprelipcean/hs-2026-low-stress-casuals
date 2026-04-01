@@ -1,0 +1,7 @@
+ M firmware/hs_hardware_analizor/.vscode/extensions.json
+ D firmware/hs_hardware_analizor/build.log
+ M firmware/hs_hardware_analizor/platformio.ini
+ M firmware/hs_hardware_analizor/src/main.cpp
+?? firmware/hs_hardware_analizor/README_ANALIZOR.md
+?? firmware/hs_hardware_analizor/git_status.txt
+?? firmware/hs_hardware_analizor/lib/
