@@ -4,6 +4,7 @@ import { PowerManagementModule } from './components/modules/PowerManagementModul
 import { SystemDiagnosticsModule } from './components/modules/SystemDiagnosticsModule';
 import { IoLogModule } from './components/modules/IoLogModule';
 import { Imu3DModule } from './components/modules/Imu3DModule';
+import { ModuleStatusModule } from './components/modules/ModuleStatusModule';
 import { Cpu, WifiOff, Globe } from 'lucide-react';
 import './index.css';
 
@@ -38,6 +39,15 @@ function App() {
   }
 
   const isOffline = !currentData.connected;
+  // UI-first status map. Per-module logic/heartbeat will be added in the next step.
+  const moduleStatusItems = [
+    { id: 'imu', label: 'BMI160 IMU', status: isOffline ? 'error' as const : 'ok' as const, subtitle: '3D orientation stream' },
+    { id: 'ntc', label: 'NTC Temperature', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'Environment sensor' },
+    { id: 'power', label: 'Power Monitor', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'Voltage and current' },
+    { id: 'ws', label: 'WebSocket Link', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'Frontend transport' },
+    { id: 'logic', label: 'Logic Analyzer', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'I2C capture pipeline' },
+    { id: 'system', label: 'System Health', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'CPU and network stats' },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-6 pb-12">
@@ -106,6 +116,11 @@ function App() {
              </div>
           </div>
         )}
+
+        {/* Module Debug Status Panel */}
+        <div className="lg:col-span-12 h-full">
+          <ModuleStatusModule modules={moduleStatusItems} />
+        </div>
 
         {/* Top/Left Section - Environment (Span 8) */}
         <div className="lg:col-span-8 h-full min-h-[400px]">
