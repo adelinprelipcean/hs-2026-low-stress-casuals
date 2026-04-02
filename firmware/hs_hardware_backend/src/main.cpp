@@ -16,6 +16,8 @@
 #include <cmath>
 #include <esp_freertos_hooks.h>
 #include <vector>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
 // Packet layout is intentionally compact for low-latency socket streaming.
 #pragma pack(push, 1)
@@ -104,7 +106,7 @@ WebSocketsServer webSocket = WebSocketsServer(3333);
 
 // ---------------------------------------------------------
 // Temperature offset to compensate for component tolerances
-#define TEMP_CALIBRATION_OFFSET -10.1f
+#define TEMP_CALIBRATION_OFFSET -5.7f
 
 // Thermistor model for current board thermistor (10k NTC + 10k divider)
 #define NTC_NOMINAL_OHMS 10000.0f
@@ -125,9 +127,9 @@ float g_current = 0;
 float g_avgCurrent = 0; // Stabilizes "Time Left" calculation
 float g_totalMah = 0;
 bool g_isBatteryCritical = false;
-#define BATTERY_CRITICAL_THRESHOLD 3.1f
+#define BATTERY_CRITICAL_THRESHOLD 2.6f
 // Require consecutive low-voltage confirmations before shutdown.
-#define BATTERY_CRITICAL_CONFIRM_SAMPLES 5
+#define BATTERY_CRITICAL_CONFIRM_SAMPLES 10
 float g_cpuLoad = 0;
 char g_timestamp[32] = "--:--:--";
 uint8_t g_displayPage = 0;
@@ -213,7 +215,8 @@ bool startAccessPoint() {
   delay(120);
   WiFi.mode(WIFI_AP);
   WiFi.setSleep(false);
-  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  // Redus TX power la 7dBm (5mW) pentru a evita spike-urile de curent pe baterie si a preveni voltage drops majore
+  WiFi.setTxPower(WIFI_POWER_7dBm);
   WiFi.softAPsetHostname("hs-imu-stream");
   WiFi.softAPdisconnect(true);
 
@@ -853,6 +856,9 @@ void onEspNowReceive(const uint8_t *mac_addr, const uint8_t *incomingData,
 }
 
 void setup() {
+  // Disabling brownout detector to prevent hardware halts on voltage spikes
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   Serial.begin(115200);
   delay(1000);
   Serial.println(F("\n--- SYSTEM BOOT ---"));
