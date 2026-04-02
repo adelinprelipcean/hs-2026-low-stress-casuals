@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useEsp32Telemetry } from './hooks/useEsp32Telemetry';
 import { EnvironmentModule } from './components/modules/EnvironmentModule';
 import { PowerManagementModule } from './components/modules/PowerManagementModule';
@@ -5,18 +6,41 @@ import { SystemDiagnosticsModule } from './components/modules/SystemDiagnosticsM
 import { IoLogModule } from './components/modules/IoLogModule';
 import { Imu3DModule } from './components/modules/Imu3DModule';
 import { ModuleStatusModule } from './components/modules/ModuleStatusModule';
-import { Cpu, WifiOff, Globe } from 'lucide-react';
+import { Cpu, WifiOff, Globe, Moon, Sun } from 'lucide-react';
 import './index.css';
 
 function App() {
   const { currentData, dataHistory, logs, dataSource, sourceMode, setSourceMode } = useEsp32Telemetry();
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const storedTheme = window.localStorage.getItem('dashboard-theme');
+    if (storedTheme === 'light' || storedTheme === 'dark') return storedTheme;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  useEffect(() => {
+    document.body.classList.remove('theme-light', 'theme-dark');
+    document.body.classList.add(theme === 'light' ? 'theme-light' : 'theme-dark');
+    window.localStorage.setItem('dashboard-theme', theme);
+  }, [theme]);
 
   // Daca nu avem date INCA aratam loading screen-ul, DAR adaugam selectorul de Mock Data chiar si aici!
   if (!currentData) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 relative">
+      <div className={`min-h-screen flex flex-col items-center justify-center relative transition-colors ${theme === 'light' ? 'theme-light bg-slate-100 text-slate-500' : 'theme-dark bg-slate-950 text-slate-400'}`}>
         {/* Selectorul ascuns sus dreapta ca sa poti trisa cand e offline */}
-        <div className="absolute top-6 right-6">
+        <div className="absolute top-6 right-6 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+            className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 transition hover:bg-slate-800"
+            aria-label="Toggle theme"
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+          </button>
+
           <label className="flex items-center gap-2 text-xs text-slate-400">
             <span className="uppercase tracking-wide">Mode</span>
             <select
@@ -39,18 +63,98 @@ function App() {
   }
 
   const isOffline = !currentData.connected;
-  // UI-first status map. Per-module logic/heartbeat will be added in the next step.
+  const hasPinsReport = currentData.moduleHealth.hasPinsReport;
+  const moduleStateFromHealth = (isConnected: boolean) =>
+    (hasPinsReport ? isConnected : !isOffline) ? ('ok' as const) : ('error' as const);
+
+  // Frontend-only heuristics for modules that do not expose dedicated status bits yet.
+  const oledLikelyConnected =
+    !isOffline &&
+    (
+      hasPinsReport
+        ? currentData.moduleHealth.rtcConnected || currentData.moduleHealth.gyroscopeConnected
+        : true
+    );
+
+  const chargerTelemetryLooksValid =
+    Number.isFinite(currentData.power.voltage) &&
+    Number.isFinite(currentData.power.current) &&
+    Number.isFinite(currentData.power.batteryPercentage) &&
+    currentData.power.voltage >= 2.5 &&
+    currentData.power.voltage <= 5.5 &&
+    currentData.power.batteryPercentage >= 0 &&
+    currentData.power.batteryPercentage <= 100;
+
+  const chargerLikelyConnected = !isOffline && (moduleStateFromHealth(currentData.moduleHealth.ina219Connected) === 'ok' || chargerTelemetryLooksValid);
+
   const moduleStatusItems = [
-    { id: 'imu', label: 'BMI160 IMU', status: isOffline ? 'error' as const : 'ok' as const, subtitle: '3D orientation stream' },
-    { id: 'ntc', label: 'NTC Temperature', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'Environment sensor' },
-    { id: 'power', label: 'Power Monitor', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'Voltage and current' },
+    {
+      id: 'imu',
+      label: 'BMI160 IMU',
+      status: moduleStateFromHealth(currentData.moduleHealth.gyroscopeConnected),
+      subtitle: '3D orientation stream',
+    },
+    {
+      id: 'ntc',
+      label: 'NTC Temperature',
+      status: moduleStateFromHealth(currentData.moduleHealth.thermistorConnected),
+      subtitle: 'Environment sensor',
+    },
+    {
+      id: 'power',
+      label: 'Power Monitor',
+      status: moduleStateFromHealth(currentData.moduleHealth.ina219Connected),
+      subtitle: 'Voltage and current',
+    },
+    {
+      id: 'charger',
+      label: 'HW-168 Charger',
+      status: chargerLikelyConnected ? ('ok' as const) : ('error' as const),
+      subtitle: 'Heuristic from power telemetry',
+    },
+    {
+      id: 'rtc',
+      label: 'RTC Clock',
+      status: moduleStateFromHealth(currentData.moduleHealth.rtcConnected),
+      subtitle: 'Real-time clock source',
+    },
+    {
+      id: 'oled',
+      label: 'OLED 0.96"',
+      status: oledLikelyConnected ? ('ok' as const) : ('error' as const),
+      subtitle: 'Heuristic from I2C module health',
+    },
     { id: 'ws', label: 'WebSocket Link', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'Frontend transport' },
     { id: 'logic', label: 'Logic Analyzer', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'I2C capture pipeline' },
-    { id: 'system', label: 'System Health', status: isOffline ? 'error' as const : 'ok' as const, subtitle: 'CPU and network stats' },
+    {
+      id: 'system',
+      label: 'System Health',
+      status: isOffline ? ('error' as const) : ('ok' as const),
+      subtitle: 'CPU and network stats',
+    },
+  ];
+
+  const pinStatusItems = [
+    { id: 'gpio5', status: currentData.pins.gpio5 },
+    { id: 'gpio6', status: currentData.pins.gpio6 },
+    { id: 'gpio7', status: currentData.pins.gpio7 },
+    { id: 'gpio8', status: currentData.pins.gpio8 },
+    { id: 'gpio9', status: currentData.pins.gpio9 },
+    { id: 'gpio10', status: currentData.pins.gpio10 },
+    { id: 'gpio20', status: currentData.pins.gpio20 },
+    { id: 'gpio21', status: currentData.pins.gpio21 },
+    { id: '5v', status: currentData.pins.p5v },
+    { id: 'gnd', status: currentData.pins.gnd },
+    { id: '3v3', status: currentData.pins.p3v3 },
+    { id: 'gpio4', status: currentData.pins.gpio4 },
+    { id: 'gpio3', status: currentData.pins.gpio3 },
+    { id: 'gpio2', status: currentData.pins.gpio2 },
+    { id: 'gpio1', status: currentData.pins.gpio1 },
+    { id: 'gpio0', status: currentData.pins.gpio0 },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans p-6 pb-12">
+    <div className={`min-h-screen font-sans p-6 pb-12 transition-colors ${theme === 'light' ? 'theme-light bg-slate-100 text-slate-900' : 'theme-dark bg-slate-950 text-slate-200'}`}>
       {/* Header */}
       <header className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
         <div>
@@ -61,6 +165,17 @@ function App() {
         </div>
 
         <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+            className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 transition hover:bg-slate-800"
+            aria-label="Toggle theme"
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            <span className="uppercase tracking-wide">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+          </button>
+
           <label className="flex items-center gap-2 text-xs text-slate-400">
             <span className="uppercase tracking-wide">Mode</span>
             <select
@@ -119,7 +234,7 @@ function App() {
 
         {/* Module Debug Status Panel */}
         <div className="lg:col-span-12 h-full">
-          <ModuleStatusModule modules={moduleStatusItems} />
+          <ModuleStatusModule modules={moduleStatusItems} pins={pinStatusItems} />
         </div>
 
         {/* Top/Left Section - Environment (Span 8) */}

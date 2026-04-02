@@ -30,6 +30,31 @@ export interface TelemetryData {
   environment: {
     temperature: number;
   };
+  pins: {
+    gpio5: 'ok' | 'error' | 'unknown';
+    gpio6: 'ok' | 'error' | 'unknown';
+    gpio7: 'ok' | 'error' | 'unknown';
+    gpio8: 'ok' | 'error' | 'unknown';
+    gpio9: 'ok' | 'error' | 'unknown';
+    gpio10: 'ok' | 'error' | 'unknown';
+    gpio20: 'ok' | 'error' | 'unknown';
+    gpio21: 'ok' | 'error' | 'unknown';
+    gpio4: 'ok' | 'error' | 'unknown';
+    gpio3: 'ok' | 'error' | 'unknown';
+    gpio2: 'ok' | 'error' | 'unknown';
+    gpio1: 'ok' | 'error' | 'unknown';
+    gpio0: 'ok' | 'error' | 'unknown';
+    p5v: 'ok' | 'error' | 'unknown';
+    gnd: 'ok' | 'error' | 'unknown';
+    p3v3: 'ok' | 'error' | 'unknown';
+  };
+  moduleHealth: {
+    hasPinsReport: boolean;
+    thermistorConnected: boolean;
+    rtcConnected: boolean;
+    gyroscopeConnected: boolean;
+    ina219Connected: boolean;
+  };
   imu: {
     pitch: number;
     roll: number;

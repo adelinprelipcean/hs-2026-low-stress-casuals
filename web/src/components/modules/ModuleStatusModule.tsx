@@ -18,63 +18,53 @@ interface ModuleStatusModuleProps {
   pins?: PinStatusItem[];
 }
 
-const PIN_ROWS = 8;
-
-type PinLabelTone = 'gpio' | 'analog' | 'digital' | 'i2c' | 'spi' | 'uart' | 'power' | 'ground' | 'adc';
-
-interface PinLabelTag {
-  text: string;
-  tone: PinLabelTone;
-}
+type PinLabelTone = 'gpio' | 'power' | 'ground';
 
 interface PinLayoutRow {
   id: string;
   side: 'left' | 'right';
   row: number;
-  labels: PinLabelTag[];
+  label: string;
+  tone: PinLabelTone;
 }
 
 const PIN_LAYOUT: PinLayoutRow[] = [
-  { id: 'gpio5', side: 'left', row: 0, labels: [{ text: 'GPIO5', tone: 'gpio' }, { text: 'A3', tone: 'analog' }, { text: 'D3', tone: 'digital' }] },
-  { id: 'gpio6', side: 'left', row: 1, labels: [{ text: 'GPIO6', tone: 'gpio' }, { text: 'SDA', tone: 'i2c' }, { text: 'D4', tone: 'digital' }] },
-  { id: 'gpio7', side: 'left', row: 2, labels: [{ text: 'GPIO7', tone: 'gpio' }, { text: 'SCL', tone: 'i2c' }, { text: 'D5', tone: 'digital' }] },
-  { id: 'gpio8', side: 'left', row: 3, labels: [{ text: 'GPIO8', tone: 'gpio' }, { text: 'SCK', tone: 'spi' }, { text: 'D8', tone: 'digital' }] },
-  { id: 'gpio9', side: 'left', row: 4, labels: [{ text: 'GPIO9', tone: 'gpio' }, { text: 'MISO', tone: 'spi' }, { text: 'D9', tone: 'digital' }] },
-  { id: 'gpio10', side: 'left', row: 5, labels: [{ text: 'GPIO10', tone: 'gpio' }, { text: 'MOSI', tone: 'spi' }, { text: 'D10', tone: 'digital' }] },
-  { id: 'gpio20', side: 'left', row: 6, labels: [{ text: 'GPIO20', tone: 'gpio' }, { text: 'RX', tone: 'uart' }, { text: 'D7', tone: 'digital' }] },
-  { id: 'gpio21', side: 'left', row: 7, labels: [{ text: 'GPIO21', tone: 'gpio' }, { text: 'TX', tone: 'uart' }, { text: 'D6', tone: 'digital' }] },
-  { id: '5v', side: 'right', row: 0, labels: [{ text: '5V', tone: 'power' }] },
-  { id: 'gnd', side: 'right', row: 1, labels: [{ text: 'GND', tone: 'ground' }] },
-  { id: '3v3', side: 'right', row: 2, labels: [{ text: '3V3', tone: 'power' }] },
-  { id: 'gpio4', side: 'right', row: 3, labels: [{ text: 'D2', tone: 'digital' }, { text: 'A2', tone: 'analog' }, { text: 'GPIO4', tone: 'gpio' }] },
-  { id: 'gpio3', side: 'right', row: 4, labels: [{ text: 'D1', tone: 'digital' }, { text: 'A1', tone: 'analog' }, { text: 'GPIO3', tone: 'gpio' }] },
-  { id: 'gpio2', side: 'right', row: 5, labels: [{ text: 'D0', tone: 'digital' }, { text: 'A0', tone: 'analog' }, { text: 'GPIO2', tone: 'gpio' }] },
-  { id: 'gpio1', side: 'right', row: 6, labels: [{ text: 'ADC1-1', tone: 'adc' }, { text: 'GPIO1', tone: 'gpio' }] },
-  { id: 'gpio0', side: 'right', row: 7, labels: [{ text: 'ADC1-0', tone: 'adc' }, { text: 'GPIO0', tone: 'gpio' }] },
+  { id: 'gpio5', side: 'left', row: 0, label: 'GPIO5', tone: 'gpio' },
+  { id: 'gpio6', side: 'left', row: 1, label: 'GPIO6', tone: 'gpio' },
+  { id: 'gpio7', side: 'left', row: 2, label: 'GPIO7', tone: 'gpio' },
+  { id: 'gpio8', side: 'left', row: 3, label: 'GPIO8', tone: 'gpio' },
+  { id: 'gpio9', side: 'left', row: 4, label: 'GPIO9', tone: 'gpio' },
+  { id: 'gpio10', side: 'left', row: 5, label: 'GPIO10', tone: 'gpio' },
+  { id: 'gpio20', side: 'left', row: 6, label: 'GPIO20', tone: 'gpio' },
+  { id: 'gpio21', side: 'left', row: 7, label: 'GPIO21', tone: 'gpio' },
+  { id: '5v', side: 'right', row: 0, label: '5V', tone: 'power' },
+  { id: 'gnd', side: 'right', row: 1, label: 'GND', tone: 'ground' },
+  { id: '3v3', side: 'right', row: 2, label: '3.3V', tone: 'power' },
+  { id: 'gpio4', side: 'right', row: 3, label: 'GPIO4', tone: 'gpio' },
+  { id: 'gpio3', side: 'right', row: 4, label: 'GPIO3', tone: 'gpio' },
+  { id: 'gpio2', side: 'right', row: 5, label: 'GPIO2', tone: 'gpio' },
+  { id: 'gpio1', side: 'right', row: 6, label: 'GPIO1', tone: 'gpio' },
+  { id: 'gpio0', side: 'right', row: 7, label: 'GPIO0', tone: 'gpio' },
 ];
 
-const pinTopPercent = (row: number) => 12 + (row * (74 / (PIN_ROWS - 1)));
+// Calibrated against the board image so dots sit over pin holes.
+const LEFT_PIN_TOP_BY_ROW_PERCENT = [18.2, 27.2, 36.0, 45.0, 54.0, 63.2, 72.4, 81.2] as const;
+const RIGHT_PIN_TOP_BY_ROW_PERCENT = [18.2, 27.2, 36.0, 45.0, 54.0, 63.2, 72.4, 81.2] as const;
+const PIN_HOLE_X_OFFSET_LEFT_PX = 88;
+const PIN_HOLE_X_OFFSET_RIGHT_PX = 84;
+const pinTopPercent = (side: 'left' | 'right', row: number) => {
+  const table = side === 'left' ? LEFT_PIN_TOP_BY_ROW_PERCENT : RIGHT_PIN_TOP_BY_ROW_PERCENT;
+  return table[row] ?? table[0];
+};
 
 const pinLabelClass = (tone: PinLabelTone) => {
   switch (tone) {
     case 'gpio':
       return 'bg-lime-600 text-white';
-    case 'analog':
-      return 'bg-orange-300 text-white';
-    case 'digital':
-      return 'bg-blue-500 text-white';
-    case 'i2c':
-      return 'bg-emerald-500 text-white';
-    case 'spi':
-      return 'bg-indigo-500 text-white';
-    case 'uart':
-      return 'bg-slate-500 text-white';
     case 'power':
       return 'bg-red-600 text-white';
     case 'ground':
       return 'bg-black text-white';
-    case 'adc':
-      return 'bg-green-800 text-white';
     default:
       return 'bg-slate-600 text-white';
   }
@@ -159,33 +149,36 @@ export const ModuleStatusModule: React.FC<ModuleStatusModuleProps> = ({ modules,
       <div className="mt-6 rounded-xl border border-slate-700/60 bg-slate-900/60 p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold tracking-wide uppercase text-slate-300">ESP32-C3 Pin State Map</h3>
-          <span className="text-[11px] text-slate-500">UI preview: awaiting header 0xC1 mapping</span>
+          <span className="text-[11px] text-slate-500">Live status from header 0xC1</span>
         </div>
 
         <div className="flex justify-center overflow-x-auto">
-          <div className="relative min-w-[760px] py-3 px-28 sm:px-36 overflow-visible">
+          <div className="relative min-w-[620px] py-3 px-10 sm:px-16 overflow-visible">
             <img
               src="/esp32_c3_mini.png"
               alt="ESP32-C3 Super Mini pin layout"
-              className="mx-auto h-auto w-[220px] sm:w-[250px] object-contain drop-shadow-[0_10px_24px_rgba(15,23,42,0.55)]"
+              className="mx-auto h-auto w-[220px] sm:w-[240px] object-contain drop-shadow-[0_10px_24px_rgba(15,23,42,0.55)]"
             />
 
             {leftPins.map((pin) => (
               <div
                 key={pin.id}
-                className="absolute left-[182px] -translate-x-full -translate-y-1/2 flex items-center gap-2"
-                style={{ top: `${pinTopPercent(pin.row)}%` }}
+                className="absolute -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  top: `${pinTopPercent(pin.side, pin.row)}%`,
+                  left: `calc(50% - ${PIN_HOLE_X_OFFSET_LEFT_PX}px)`,
+                }}
               >
-                <span className={`h-2.5 w-2.5 rounded-full ${pinDotClass(pin.status)}`} />
-                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                  {pin.labels.map((label) => (
-                    <span
-                      key={`${pin.id}-${label.text}`}
-                      className={`rounded-sm px-2 py-[2px] text-[11px] font-semibold tracking-wide ${pinLabelClass(label.tone)}`}
-                    >
-                      {label.text}
-                    </span>
-                  ))}
+                <span
+                  className={`relative z-10 block h-4 w-4 rounded-full border border-slate-900/70 ${pinDotClass(pin.status)}`}
+                />
+                <div className="absolute right-[10px] top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <span
+                    className={`whitespace-nowrap rounded-sm px-2.5 py-[2px] text-[11px] font-semibold tracking-wide ${pinLabelClass(pin.tone)}`}
+                  >
+                    {pin.label}
+                  </span>
+                  <span className="h-px w-4 bg-slate-500/70" />
                 </div>
               </div>
             ))}
@@ -193,19 +186,22 @@ export const ModuleStatusModule: React.FC<ModuleStatusModuleProps> = ({ modules,
             {rightPins.map((pin) => (
               <div
                 key={pin.id}
-                className="absolute right-[182px] translate-x-full -translate-y-1/2 flex items-center gap-2"
-                style={{ top: `${pinTopPercent(pin.row)}%` }}
+                className="absolute -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  top: `${pinTopPercent(pin.side, pin.row)}%`,
+                  left: `calc(50% + ${PIN_HOLE_X_OFFSET_RIGHT_PX}px)`,
+                }}
               >
-                <span className={`h-2.5 w-2.5 rounded-full ${pinDotClass(pin.status)}`} />
-                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                  {pin.labels.map((label) => (
-                    <span
-                      key={`${pin.id}-${label.text}`}
-                      className={`rounded-sm px-2 py-[2px] text-[11px] font-semibold tracking-wide ${pinLabelClass(label.tone)}`}
-                    >
-                      {label.text}
-                    </span>
-                  ))}
+                <span
+                  className={`relative z-10 block h-4 w-4 rounded-full border border-slate-900/70 ${pinDotClass(pin.status)}`}
+                />
+                <div className="absolute left-[10px] top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <span className="h-px w-4 bg-slate-500/70" />
+                  <span
+                    className={`whitespace-nowrap rounded-sm px-2.5 py-[2px] text-[11px] font-semibold tracking-wide ${pinLabelClass(pin.tone)}`}
+                  >
+                    {pin.label}
+                  </span>
                 </div>
               </div>
             ))}

@@ -10,4 +10,68 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+body.theme-dark {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+body.theme-light {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* Light theme overrides for existing dark utility classes used across modules. */
+body.theme-light .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+body.theme-light .bg-slate-900 {
+  background-color: #e2e8f0 !important;
+}
+
+body.theme-light .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+
+body.theme-light [class*="bg-slate-900/"] {
+  background-color: rgba(226, 232, 240, 0.72) !important;
+}
+
+body.theme-light [class*="bg-slate-800/"] {
+  background-color: rgba(241, 245, 249, 0.85) !important;
+}
+
+body.theme-light .text-slate-200 {
+  color: #0f172a !important;
+}
+
+body.theme-light .text-slate-300 {
+  color: #1e293b !important;
+}
+
+body.theme-light .text-slate-400 {
+  color: #334155 !important;
+}
+
+body.theme-light .text-slate-500,
+body.theme-light .text-slate-600 {
+  color: #475569 !important;
+}
+
+body.theme-light .border-slate-700,
+body.theme-light .border-slate-700\/50,
+body.theme-light [class*="border-slate-700/"] {
+  border-color: rgba(148, 163, 184, 0.55) !important;
+}
+
+body.theme-light .shadow-lg,
+body.theme-light .shadow-2xl {
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
+}
+
+body.theme-light .bg-\[\#0a0f1c\] {
+  background-color: #e2e8f0 !important;
 }

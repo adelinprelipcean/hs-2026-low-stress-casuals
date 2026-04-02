@@ -9,7 +9,7 @@ interface Imu3DModuleProps {
 }
 
 const MODEL_SCALE = 0.1;
-const MODEL_MOUNT_ROTATION: [number, number, number] = [-Math.PI / 2, 0, -Math.PI / 2];
+const MODEL_MOUNT_ROTATION: [number, number, number] = [-Math.PI / 2, 0, 0];
 const MODEL_PIVOT_TRIM: [number, number, number] = [0, 0, 0];
 
 // O sub-componentă pentru modelul 3D al plăcii (necesită un fișier esp32.glb în folderul public/)
