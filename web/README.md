@@ -1,39 +1,68 @@
-﻿# React + Vite ESP32 Telemetry Dashboard
+﻿# ESP32 Telemetry Dashboard (Web)
 
-Bun venit la **ESP32 Telemetry Dashboard**! Această aplicație React a fost construită complet de la zero pentru a servi drept monitor în timp real pentru datele hardware transmise direct de un microcontroler ESP32-C3.
+Interfata web pentru monitorizare in timp real a platformei ESP32-C3.
 
-## 🚀 Călătoria Proiectului
+Aplicatia este construita cu React + TypeScript + Vite si primeste date binare prin WebSocket direct de la backend-ul ESP32.
 
-Povestea acestui proiect a început cu o structură simplă de bază Vite + React. Obiectivul arhitectural inițial a fost construirea unui layout curat, tip terminal în dark-mode, care să conțină module individuale pentru diferite citiri hardware ale ESP32 (Mediu/Senzori, Managementul Energiei, Diagnostice de Sistem și Loguri I/O).
+## Ce afiseaza
 
-### Faza 1: Structurare și Mocking
-Am dezvoltat mai întâi frontend-ul: componente modulare care gestionează totul, de la citirile de temperatură până la tensiunea bateriei și logica semnalului wireless. Pentru a testa interfața fără a avea un ESP32 asamblat la îndemână imediat, am conceput un sistem sofisticat de simulare (mocking) a telemetriei prin intermediul unui hook custom, `useEsp32Telemetry`. Acesta a permis aplicației să simuleze în mod sigur și realist fluctuațiile de rețea, scăderile de tensiune în timp și declanșările aleatorii ale pinilor GPIO.
+- IMU 3D (BMI160) cu orientare in timp real (roll/pitch/yaw)
+- Temperatura din NTC cu reprezentare grafica
+- Energie: tensiune, curent, procent baterie, consum total, timp ramas
+- Status module hardware (IMU, RTC, INA219, NTC, WebSocket etc.)
+- Harta pinilor ESP32-C3 cu indicatori de stare
+- Loguri I/O si evenimente de schimbare de stare
 
-### Faza 2: De la Local la IoT
-Adevărata provocare a apărut când codul efectiv pentru ESP32 a fost configurat. Echipa noastră a optat pentru protocolul MQTT via **HiveMQ Cloud** pentru transmisii IoT rapide.
-Am transformat motorul de simulare într-un abonat MQTT activ pe bază de WebSockets. Am importat librăria `mqtt.js`, am stabilit conexiuni securizate WebSocket (WSS pe portul 8884) către HiveMQ și am conectat dashboard-ul la topicul IoT live.
+## Protocol date (headers)
 
-### Faza 3: Perfecționarea Pachetului de Date (Payload-ului)
-În ultima etapă, colegii de la hardware au stabilit un format JSON specific pentru telemetrie, incluzând metrici precum `light_intensity`, `current_total`, și `io_log`. Am adaptat strict interfețele noastre TypeScript pentru a respecta exact acest standard de intrare, sincronizând complet dashboard-ul live cu array-urile reale de senzori în mod fluid.
+Frontend-ul interpreteaza pachete binare pe header:
 
-## 🛠️ Stack Tehnologic & Funcționalități
-- **Framework & Unelte**: React, TypeScript, Vite
-- **Rețelistică**: `mqtt.js` (conectat prin WebSockets folosind wss:// către HiveMQ)
-- **UI & Grafice**: Tailwind CSS, Recharts pentru distribuții istorice în timp real sub formă de linii.
-- **Senzori Afișați**: Temperatura (°C), Intensitate Luminoasă (Lux), Încărcare CPU, Putere Semnal (RSSI), Tensiune (V), Curent (mA), citiri brute GPIO și Durata estimată a bateriei.
+- `0xA1` - IMU raw stream
+- `0xE1` - IMU status/fallback
+- `0xD4` - Telemetrie sistem/mediu/energie
+- `0xC1` - Status pini + status module
 
-## 🏃‍♂️ Rularea Interfeței Web
+Actualizarea starii este facuta pe tip de pachet (slice updates), astfel pachetele non-IMU nu mai suprascriu orientarea IMU.
 
-Dacă dorești să pornești interfața web pentru a vedea datele de telemetrie primite:
+## Functionalitati UI recente
 
-1. Navighează în folderul `web` (sau `esp32-week1`).
-2. Instalează dependențele:
-   ```bash
-   npm install
-   ```
-3. Pornește serverul de dezvoltare:
-   ```bash
-   npm run dev
-   ```
+- Toggle Light/Dark theme cu persistenta in `localStorage`
+- Modul de status pentru hardware (cu bec verde/rosu)
+- Pin map ESP32-C3 (buline pe pini + etichete)
+- Logare pe tranzitii de stare (pins/modules/stream), cu anti-spam
 
-*(Pentru a schimba configurarea sau host-ul HiveMQ, verifică fișierul `src/hooks/useEsp32Telemetry.ts`)*.
+## Rulare locala
+
+1. Intra in folderul `web`:
+
+```bash
+cd web
+```
+
+2. Instaleaza dependintele:
+
+```bash
+npm install
+```
+
+3. Ruleaza in development:
+
+```bash
+npm run dev
+```
+
+4. Build productie:
+
+```bash
+npm run build
+```
+
+## Configurare WebSocket
+
+URL-ul WebSocket este definit in:
+
+- `src/hooks/useEsp32Telemetry.ts`
+
+Implicit:
+
+- `ws://192.168.4.1:3333`
